@@ -1,9 +1,9 @@
 {
-  "name": "azure-ai-chat",
-  "displayName": "Azure AI Chat",
+  "name": "mseg-azure-ai-vscode-ext",
+  "displayName": "Azure AI VScode Chat Extenstion",
   "description": "Agentic AI coding assistant for VS Code, powered by your own Azure OpenAI deployment. Sidebar chat with attachments and Git Bash, plus Azure models in the native Chat view.",
   "version": "0.4.0",
-  "publisher": "minterellison",
+  "publisher": "Premraj",
   "license": "MIT",
   "engines": {
     "vscode": "^1.104.0"
@@ -206,7 +206,7 @@
             "apiKey": {
               "type": "string",
               "default": "",
-              "markdownDescription": "Azure OpenAI API key. **Stored as plain text in settings.json** \u2014 it syncs with Settings Sync and is committed to git if this lives in a workspace `.vscode` folder. Prefer leaving this empty and using **Azure AI Chat: Set API Key**."
+              "markdownDescription": "Azure OpenAI API key. **Stored as plain text in settings.json** — it syncs with Settings Sync and is committed to git if this lives in a workspace `.vscode` folder. Prefer leaving this empty and using **Azure AI Chat: Set API Key**."
             },
             "apiMode": {
               "type": "string",
@@ -296,14 +296,14 @@
           ],
           "enumDescriptions": [
             "Do not send a reasoning effort",
-            "Explicitly none \u2014 required by some deployments before they accept tools",
+            "Explicitly none — required by some deployments before they accept tools",
             "Minimal",
             "Low",
             "Medium",
             "High"
           ],
           "default": "",
-          "markdownDescription": "Default `reasoning_effort` sent with each request. Only reasoning deployments (o-series, GPT-5 family) accept it \u2014 leave empty for everything else. The composer has a per-message override."
+          "markdownDescription": "Default `reasoning_effort` sent with each request. Only reasoning deployments (o-series, GPT-5 family) accept it — leave empty for everything else. The composer has a per-message override."
         },
         "azureAiChat.shell.bashPath": {
           "type": "string",
@@ -313,7 +313,7 @@
         "azureAiChat.shell.requireApprovalForAll": {
           "type": "boolean",
           "default": false,
-          "markdownDescription": "Ask before **every** command, including read-only ones like `git status`. Off by default: read-only commands and the project\u2019s own lint/type-check/test/build scripts run immediately, everything that mutates still waits for approval."
+          "markdownDescription": "Ask before **every** command, including read-only ones like `git status`. Off by default: read-only commands and the project’s own lint/type-check/test/build scripts run immediately, everything that mutates still waits for approval."
         },
         "azureAiChat.shell.timeoutSeconds": {
           "type": "number",
@@ -428,7 +428,7 @@
       {
         "name": "azureAiChat_runValidation",
         "displayName": "Run Project Validation",
-        "modelDescription": "Discover and run the project's real validation scripts (type-check, lint, test, build) by reading package.json, pyproject.toml or tsconfig.json. Prefer this over guessing command names. Call it after making changes, and report only the outcomes it returns \u2014 never claim a check passed that this did not show passing.",
+        "modelDescription": "Discover and run the project's real validation scripts (type-check, lint, test, build) by reading package.json, pyproject.toml or tsconfig.json. Prefer this over guessing command names. Call it after making changes, and report only the outcomes it returns — never claim a check passed that this did not show passing.",
         "userDescription": "Runs your project's lint, type-check, test and build scripts.",
         "toolReferenceName": "azureValidate",
         "canBeReferencedInPrompt": true,
@@ -460,7 +460,7 @@
       {
         "name": "azureAiChat_recordSession",
         "displayName": "Record Session Context",
-        "modelDescription": "Record durable technical context for this session \u2014 the requirement, a decision and why, a file changed, a bug found or fixed, or a next step. It feeds the session report and lets a later session resume the work. Never record secrets.",
+        "modelDescription": "Record durable technical context for this session — the requirement, a decision and why, a file changed, a bug found or fixed, or a next step. It feeds the session report and lets a later session resume the work. Never record secrets.",
         "userDescription": "Saves notes about this session to the local session report.",
         "toolReferenceName": "azureRecord",
         "canBeReferencedInPrompt": true,
