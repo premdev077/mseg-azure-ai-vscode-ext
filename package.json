@@ -1,0 +1,515 @@
+{
+  "name": "azure-ai-chat",
+  "displayName": "Azure AI Chat",
+  "description": "Agentic AI coding assistant for VS Code, powered by your own Azure OpenAI deployment. Sidebar chat with attachments and Git Bash, plus Azure models in the native Chat view.",
+  "version": "0.4.0",
+  "publisher": "minterellison",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.104.0"
+  },
+  "categories": [
+    "AI",
+    "Chat",
+    "Programming Languages",
+    "Other"
+  ],
+  "keywords": [
+    "azure",
+    "openai",
+    "chat",
+    "ai",
+    "assistant"
+  ],
+  "activationEvents": [],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "azureAiChat",
+          "title": "Azure AI Chat",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "azureAiChat": [
+        {
+          "type": "webview",
+          "id": "azureAiChat.chatView",
+          "name": "Chat"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "azureAiChat.setApiKey",
+        "title": "Azure AI Chat: Set API Key",
+        "icon": "$(key)"
+      },
+      {
+        "command": "azureAiChat.clearApiKey",
+        "title": "Azure AI Chat: Clear API Key"
+      },
+      {
+        "command": "azureAiChat.newChat",
+        "title": "New Chat",
+        "icon": "$(add)",
+        "category": "Azure AI Chat"
+      },
+      {
+        "command": "azureAiChat.focus",
+        "title": "Azure AI Chat: Focus Chat"
+      },
+      {
+        "command": "azureAiChat.explainSelection",
+        "title": "Azure AI Chat: Explain Selection"
+      },
+      {
+        "command": "azureAiChat.editSelection",
+        "title": "Azure AI Chat: Edit Selection with AI"
+      },
+      {
+        "command": "azureAiChat.openSettings",
+        "title": "Settings",
+        "icon": "$(gear)",
+        "category": "Azure AI Chat"
+      },
+      {
+        "command": "azureAiChat.testConnection",
+        "title": "Azure AI Chat: Test Connection"
+      },
+      {
+        "command": "azureAiChat.secureApiKey",
+        "title": "Azure AI Chat: Move API Key to Secret Storage"
+      },
+      {
+        "command": "azureAiChat.openChatView",
+        "title": "Azure AI Chat: Open in Chat View"
+      },
+      {
+        "command": "azureAiChat.showReport",
+        "title": "Session Report",
+        "icon": "$(output)",
+        "category": "Azure AI Chat"
+      },
+      {
+        "command": "azureAiChat.exportReport",
+        "title": "Azure AI Chat: Export Session Report"
+      },
+      {
+        "command": "azureAiChat.resumeSession",
+        "title": "Azure AI Chat: Resume a Previous Session"
+      },
+      {
+        "command": "azureAiChat.attachFiles",
+        "title": "Azure AI Chat: Attach Files"
+      },
+      {
+        "command": "azureAiChat.openHistoryFolder",
+        "title": "Azure AI Chat: Open Session History Folder"
+      },
+      {
+        "command": "azureAiChat.showHistory",
+        "title": "History",
+        "icon": "$(history)",
+        "category": "Azure AI Chat"
+      },
+      {
+        "command": "azureAiChat.clearHistory",
+        "title": "Azure AI Chat: Delete All Saved Conversations"
+      },
+      {
+        "command": "azureAiChat.openConversationsFolder",
+        "title": "Azure AI Chat: Open Conversations Folder"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "azureAiChat.newChat",
+          "when": "view == azureAiChat.chatView",
+          "group": "navigation@1"
+        },
+        {
+          "command": "azureAiChat.showHistory",
+          "when": "view == azureAiChat.chatView",
+          "group": "navigation@2"
+        },
+        {
+          "command": "azureAiChat.showReport",
+          "when": "view == azureAiChat.chatView",
+          "group": "navigation@3"
+        },
+        {
+          "command": "azureAiChat.openSettings",
+          "when": "view == azureAiChat.chatView",
+          "group": "navigation@4"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "azureAiChat.explainSelection",
+          "when": "editorHasSelection",
+          "group": "azureAiChat@1"
+        },
+        {
+          "command": "azureAiChat.editSelection",
+          "when": "editorHasSelection",
+          "group": "azureAiChat@2"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "azureAiChat.focus",
+        "key": "ctrl+alt+i",
+        "mac": "cmd+alt+i"
+      },
+      {
+        "command": "azureAiChat.editSelection",
+        "key": "ctrl+alt+k",
+        "mac": "cmd+alt+k",
+        "when": "editorTextFocus"
+      }
+    ],
+    "configuration": {
+      "title": "Azure AI Chat",
+      "properties": {
+        "azureAiChat.connection": {
+          "type": "object",
+          "markdownDescription": "Connection to your Azure OpenAI resource.\n\n```json\n\"azureAiChat.connection\": {\n  \"endpoint\": \"https://my-resource.openai.azure.com\",\n  \"model\": \"gpt-4o\",\n  \"apiKey\": \"\"\n}\n```\n\n`model` is the **deployment name** from Azure AI Foundry, not the underlying model name. It may also be a list to expose several deployments in the Chat model picker.\n\nLeave `apiKey` empty and run **Azure AI Chat: Set API Key** to keep the key in encrypted SecretStorage instead of this file.",
+          "default": {
+            "endpoint": "",
+            "model": "",
+            "apiKey": ""
+          },
+          "additionalProperties": false,
+          "properties": {
+            "endpoint": {
+              "type": "string",
+              "default": "",
+              "markdownDescription": "Resource endpoint, e.g. `https://my-resource.openai.azure.com`. No path, no trailing slash."
+            },
+            "model": {
+              "type": [
+                "string",
+                "array"
+              ],
+              "items": {
+                "type": "string"
+              },
+              "default": "",
+              "markdownDescription": "Deployment name, or a list of deployment names."
+            },
+            "apiKey": {
+              "type": "string",
+              "default": "",
+              "markdownDescription": "Azure OpenAI API key. **Stored as plain text in settings.json** \u2014 it syncs with Settings Sync and is committed to git if this lives in a workspace `.vscode` folder. Prefer leaving this empty and using **Azure AI Chat: Set API Key**."
+            },
+            "apiMode": {
+              "type": "string",
+              "enum": [
+                "v1",
+                "classic"
+              ],
+              "default": "v1",
+              "markdownDescription": "`v1` uses the versionless `/openai/v1/chat/completions` endpoint. Switch to `classic` if you get a 404."
+            },
+            "apiVersion": {
+              "type": "string",
+              "default": "2024-10-21",
+              "description": "api-version used when apiMode is 'classic'."
+            }
+          }
+        },
+        "azureAiChat.temperature": {
+          "type": "number",
+          "default": 0.2,
+          "minimum": 0,
+          "maximum": 2,
+          "description": "Sampling temperature. Lower is more deterministic. Ignored by reasoning models that do not support it."
+        },
+        "azureAiChat.maxTokens": {
+          "type": "number",
+          "default": 8000,
+          "description": "Maximum tokens to generate per response."
+        },
+        "azureAiChat.useMaxCompletionTokens": {
+          "type": "boolean",
+          "default": false,
+          "description": "Send 'max_completion_tokens' instead of 'max_tokens'. Required by o-series / reasoning-model deployments."
+        },
+        "azureAiChat.maxToolIterations": {
+          "type": "number",
+          "default": 12,
+          "description": "Maximum number of tool-calling round trips before the agent loop stops."
+        },
+        "azureAiChat.autoApproveEdits": {
+          "type": "boolean",
+          "default": false,
+          "description": "Apply file edits without waiting for you to review the diff. Off by default."
+        },
+        "azureAiChat.includeActiveFile": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically attach the active editor's file as context with each new message."
+        },
+        "azureAiChat.maxFileBytes": {
+          "type": "number",
+          "default": 200000,
+          "description": "Files larger than this (in bytes) are truncated when read as context."
+        },
+        "azureAiChat.excludeGlobs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "**/node_modules/**",
+            "**/.git/**",
+            "**/dist/**",
+            "**/out/**",
+            "**/build/**",
+            "**/.venv/**",
+            "**/__pycache__/**",
+            "**/*.lock"
+          ],
+          "description": "Globs excluded from file listing and search tools."
+        },
+        "azureAiChat.systemPrompt": {
+          "type": "string",
+          "default": "",
+          "editPresentation": "multilineText",
+          "description": "Extra instructions appended to the built-in system prompt. Use this for house style, preferred libraries, or team conventions."
+        },
+        "azureAiChat.reasoningEffort": {
+          "type": "string",
+          "enum": [
+            "",
+            "none",
+            "minimal",
+            "low",
+            "medium",
+            "high"
+          ],
+          "enumDescriptions": [
+            "Do not send a reasoning effort",
+            "Explicitly none \u2014 required by some deployments before they accept tools",
+            "Minimal",
+            "Low",
+            "Medium",
+            "High"
+          ],
+          "default": "",
+          "markdownDescription": "Default `reasoning_effort` sent with each request. Only reasoning deployments (o-series, GPT-5 family) accept it \u2014 leave empty for everything else. The composer has a per-message override."
+        },
+        "azureAiChat.shell.bashPath": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Full path to `bash.exe`. Leave empty to auto-detect Git Bash (Program Files, LocalAppData, or next to `git` on PATH)."
+        },
+        "azureAiChat.shell.requireApprovalForAll": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "Ask before **every** command, including read-only ones like `git status`. Off by default: read-only commands and the project\u2019s own lint/type-check/test/build scripts run immediately, everything that mutates still waits for approval."
+        },
+        "azureAiChat.shell.timeoutSeconds": {
+          "type": "number",
+          "default": 120,
+          "minimum": 1,
+          "maximum": 600,
+          "description": "Default timeout for a single command. The model may request less, up to a maximum of 600."
+        },
+        "azureAiChat.saveSessionHistory": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Write session context (task, decisions, files changed, commands, outstanding items) to the local temp folder so a later session can resume it. Secrets are redacted before writing."
+        },
+        "azureAiChat.saveConversations": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Save chat transcripts so they can be reopened and continued from **History**. They are stored on this machine in VS Code's own extension storage folder, not in the temp directory."
+        }
+      }
+    },
+    "languageModelChatProviders": [
+      {
+        "vendor": "azure-ai-chat",
+        "displayName": "Azure OpenAI (your deployment)"
+      }
+    ],
+    "languageModelTools": [
+      {
+        "name": "azureAiChat_runCommand",
+        "displayName": "Run Command (Git Bash)",
+        "modelDescription": "Run a shell command in the workspace using Git Bash on Windows, or the system shell elsewhere. Read-only commands and the project's own lint/type-check/test/build scripts run immediately; anything that changes files, packages, the git repository or the machine asks the user for confirmation first. stdin is closed, so never run anything interactive or any long-running watcher.",
+        "userDescription": "Runs shell commands in your workspace, asking before anything that changes state.",
+        "toolReferenceName": "azureRun",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(terminal)",
+        "tags": [
+          "terminal",
+          "shell",
+          "azure-ai-chat"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "command": {
+              "type": "string",
+              "description": "The command line to run, e.g. \"git status\" or \"npm run type-check\"."
+            },
+            "cwd": {
+              "type": "string",
+              "description": "Optional workspace-relative directory. Defaults to the workspace root."
+            },
+            "timeout_seconds": {
+              "type": "number",
+              "description": "Optional timeout in seconds. Defaults to 120, maximum 600.",
+              "default": 120
+            }
+          },
+          "required": [
+            "command"
+          ]
+        }
+      },
+      {
+        "name": "azureAiChat_gitStatus",
+        "displayName": "Git Status",
+        "modelDescription": "Show the git working tree status and current branch. Run this before making significant changes so you know what uncommitted work already exists.",
+        "userDescription": "Reads your git working tree status.",
+        "toolReferenceName": "azureGitStatus",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(source-control)",
+        "tags": [
+          "git",
+          "azure-ai-chat"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {}
+        }
+      },
+      {
+        "name": "azureAiChat_gitDiff",
+        "displayName": "Git Diff",
+        "modelDescription": "Show the diff of the working tree so you can review exactly what changed. Use it after implementing something, before reporting that you are done.",
+        "userDescription": "Reads your git diff.",
+        "toolReferenceName": "azureGitDiff",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(diff)",
+        "tags": [
+          "git",
+          "azure-ai-chat"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "staged": {
+              "type": "boolean",
+              "description": "Diff staged changes instead of the working tree.",
+              "default": false
+            },
+            "path": {
+              "type": "string",
+              "description": "Optional workspace-relative path to limit the diff to."
+            },
+            "stat_only": {
+              "type": "boolean",
+              "description": "Return only the summary of files changed.",
+              "default": false
+            }
+          }
+        }
+      },
+      {
+        "name": "azureAiChat_runValidation",
+        "displayName": "Run Project Validation",
+        "modelDescription": "Discover and run the project's real validation scripts (type-check, lint, test, build) by reading package.json, pyproject.toml or tsconfig.json. Prefer this over guessing command names. Call it after making changes, and report only the outcomes it returns \u2014 never claim a check passed that this did not show passing.",
+        "userDescription": "Runs your project's lint, type-check, test and build scripts.",
+        "toolReferenceName": "azureValidate",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(check-all)",
+        "tags": [
+          "testing",
+          "build",
+          "azure-ai-chat"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "kinds": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "typecheck",
+                  "lint",
+                  "test",
+                  "build"
+                ]
+              },
+              "description": "Which checks to run. Defaults to everything available."
+            }
+          }
+        }
+      },
+      {
+        "name": "azureAiChat_recordSession",
+        "displayName": "Record Session Context",
+        "modelDescription": "Record durable technical context for this session \u2014 the requirement, a decision and why, a file changed, a bug found or fixed, or a next step. It feeds the session report and lets a later session resume the work. Never record secrets.",
+        "userDescription": "Saves notes about this session to the local session report.",
+        "toolReferenceName": "azureRecord",
+        "canBeReferencedInPrompt": true,
+        "icon": "$(note)",
+        "tags": [
+          "notes",
+          "azure-ai-chat"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "requirement",
+                "decision",
+                "file-changed",
+                "bug",
+                "fix",
+                "todo",
+                "note"
+              ],
+              "description": "What sort of entry this is."
+            },
+            "text": {
+              "type": "string",
+              "description": "One or two concise sentences."
+            }
+          },
+          "required": [
+            "kind",
+            "text"
+          ]
+        }
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run package",
+    "compile": "node esbuild.js",
+    "watch": "node esbuild.js --watch",
+    "package": "node esbuild.js --production",
+    "check-types": "tsc --noEmit",
+    "vsix": "npx --yes @vscode/vsce package --no-dependencies"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "@types/vscode": "^1.90.0",
+    "esbuild": "^0.23.0",
+    "typescript": "^5.5.0"
+  }
+}
