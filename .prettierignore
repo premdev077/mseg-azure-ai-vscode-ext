@@ -1,0 +1,18 @@
+dist/
+out/
+media/webview/
+node_modules/
+package-lock.json
+
+# Generated from the prompt document; formatting it would fight the generator.
+src/prompt/systemPrompt.ts
+
+# Superseded by the React webview, kept on disk and excluded from the package.
+media/main.js
+media/main.css
+media/activity.js
+media/activity.css
+
+# Authored prose, not code. Reformatting it is churn nobody asked for.
+README.md
+SKILL.md

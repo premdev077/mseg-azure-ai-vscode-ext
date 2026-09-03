@@ -6,13 +6,48 @@ import { EditReviewManager, PendingEdit, diffStat } from './editReview';
 import { CommandApprovalManager } from './commandApproval';
 import { classifyCommand } from './shell/policy';
 import { findBash, formatResult, runCommand, toBashPath } from './shell/exec';
-import { SessionRecorder } from './history';
+import { EntryKind, SessionRecorder } from './history';
+import { applyEdits, parseEdits } from './patch/apply';
+import {
+  parseToolArgs,
+  readBoolean,
+  readEnum,
+  readNumber,
+  readOptionalString,
+  readRaw,
+  readString,
+  readStringArray,
+  type ToolArgs
+} from './toolArgs';
+import { AgentScope, checkScope } from './agent/scope';
+import { ChangeLog, ChangeOperation } from './agent/changes';
+import { LockTable } from './agent/locks';
+import { GitBaseline, preexistingWarning } from './git/baseline';
 
 export interface ToolContext {
   settings: Settings;
   edits: EditReviewManager;
   commands: CommandApprovalManager;
   recorder: SessionRecorder;
+  /**
+   * The agent making the call. Everything this agent puts up for approval is
+   * tagged with it, so cancelling one agent rejects only its own pending work.
+   */
+  owner: string;
+  /** The run this call belongs to. Used for file ownership. */
+  taskId?: string;
+  /**
+   * What this agent may modify. Undefined means unrestricted, which is what
+   * the single-agent path uses — scoping is opt-in so nothing changes until
+   * the Coordinator assigns one.
+   */
+  scope?: AgentScope;
+  /** File ownership. Absent means no contention is possible. */
+  locks?: LockTable;
+  /** Records every change proposed, accepted or not. */
+  changes?: ChangeLog;
+  /** The working tree as it was before the run started. */
+  baseline?: GitBaseline;
   /** Notifies the panel that a command is awaiting approval. */
   onCommandProposed: (info: {
     id: string;
@@ -29,6 +64,8 @@ export interface ToolContext {
     timedOut: boolean;
     output: string;
   }) => void;
+  /** Notifies the panel that an agent is queued behind another for a file. */
+  onEditWaiting?: (info: { relPath: string; heldBy: string }) => void;
   /** Notifies the panel that an edit is awaiting review. */
   onEditProposed: (info: {
     id: string;
@@ -118,15 +155,59 @@ export const TOOL_SPECS: ToolSpec[] = [
   {
     type: 'function',
     function: {
-      name: 'write_file',
+      name: 'apply_patch',
       description:
-        'Propose the full new contents of a file. The user sees a diff and accepts or rejects it; the tool result tells you which happened. Always send the complete file, never a fragment or a placeholder comment.',
+        'Change part of an existing file by replacing exact snippets. Prefer this over write_file for any file that already exists: you only send the lines that change, so nothing else can be lost. Read the file first and copy the "find" text exactly, including indentation. Each "find" must match exactly one place in the file — if it could match more than once, include more surrounding lines. The user reviews the result as a diff and accepts or rejects it.',
       parameters: {
         type: 'object',
         properties: {
           path: {
             type: 'string',
-            description: 'Workspace-relative path. May be a file that does not exist yet.'
+            description: 'Workspace-relative path to an existing file.'
+          },
+          edits: {
+            type: 'array',
+            description:
+              'Replacements, applied in order. Each is applied to the result of the previous one.',
+            items: {
+              type: 'object',
+              properties: {
+                find: {
+                  type: 'string',
+                  description:
+                    'Exact text to locate, copied from the file. Must occur exactly once.'
+                },
+                replace: {
+                  type: 'string',
+                  description:
+                    'Text to put in its place. Use an empty string to delete the matched text.'
+                }
+              },
+              required: ['find', 'replace']
+            }
+          },
+          summary: {
+            type: 'string',
+            description: 'One short line describing what this change does.'
+          }
+        },
+        required: ['path', 'edits']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'write_file',
+      description:
+        'Propose the full new contents of a file. Use this to create a new file, or when a file genuinely needs replacing wholesale — for a change to part of an existing file use apply_patch instead, which cannot lose the parts you are not touching. The user sees a diff and accepts or rejects it; the tool result tells you which happened. Always send the complete file, never a fragment or a placeholder comment.',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: {
+            type: 'string',
+            description:
+              'Workspace-relative path. May be a file that does not exist yet.'
           },
           content: {
             type: 'string',
@@ -146,13 +227,14 @@ export const TOOL_SPECS: ToolSpec[] = [
     function: {
       name: 'run_command',
       description:
-        'Run a shell command in the workspace using Git Bash (or the system shell on macOS/Linux). Read-only commands and the project\'s own lint/type-check/test/build scripts run immediately; anything that changes files, packages, the git repository or the machine waits for the user to approve it. stdin is closed, so never run an interactive command. Use this to inspect versions, search, run git, and validate your work — do not ask the user to run commands themselves.',
+        "Run a shell command in the workspace using Git Bash (or the system shell on macOS/Linux). Read-only commands and the project's own lint/type-check/test/build scripts run immediately; anything that changes files, packages, the git repository or the machine waits for the user to approve it. stdin is closed, so never run an interactive command. Use this to inspect versions, search, run git, and validate your work — do not ask the user to run commands themselves.",
       parameters: {
         type: 'object',
         properties: {
           command: {
             type: 'string',
-            description: 'The command line to run, e.g. "git status" or "npm run type-check".'
+            description:
+              'The command line to run, e.g. "git status" or "npm run type-check".'
           },
           cwd: {
             type: 'string',
@@ -239,7 +321,15 @@ export const TOOL_SPECS: ToolSpec[] = [
         properties: {
           kind: {
             type: 'string',
-            enum: ['requirement', 'decision', 'file-changed', 'bug', 'fix', 'todo', 'note'],
+            enum: [
+              'requirement',
+              'decision',
+              'file-changed',
+              'bug',
+              'fix',
+              'todo',
+              'note'
+            ],
             description: 'What sort of entry this is.'
           },
           text: { type: 'string', description: 'One or two concise sentences.' }
@@ -267,7 +357,7 @@ export const TOOL_SPECS: ToolSpec[] = [
   }
 ];
 
-function workspaceFolders(): vscode.WorkspaceFolder[] {
+function workspaceFolders(): readonly vscode.WorkspaceFolder[] {
   const folders = vscode.workspace.workspaceFolders;
   if (!folders || folders.length === 0) {
     throw new Error(
@@ -294,9 +384,7 @@ function displayPath(uri: vscode.Uri): string {
  */
 function searchPattern(glob: string): vscode.RelativePattern | string {
   const folders = workspaceFolders();
-  return folders.length === 1
-    ? new vscode.RelativePattern(folders[0], glob)
-    : glob;
+  return folders.length === 1 ? new vscode.RelativePattern(folders[0], glob) : glob;
 }
 
 /** Resolves a model-supplied path and refuses anything outside the workspace. */
@@ -353,15 +441,11 @@ export async function runTool(
   rawArgs: string,
   ctx: ToolContext
 ): Promise<string> {
-  let args: any;
-  try {
-    args = rawArgs ? JSON.parse(rawArgs) : {};
-  } catch {
-    return `Error: arguments for ${name} were not valid JSON. Received: ${rawArgs.slice(
-      0,
-      400
-    )}`;
+  const parsed = parseToolArgs(rawArgs);
+  if (!parsed.ok) {
+    return `Error: ${name} ${parsed.error}`;
   }
+  const args = parsed.args;
 
   try {
     switch (name) {
@@ -373,6 +457,8 @@ export async function runTool(
         return await toolSearch(args, ctx);
       case 'write_file':
         return await toolWriteFile(args, ctx);
+      case 'apply_patch':
+        return await toolApplyPatch(args, ctx);
       case 'run_command':
         return await toolRunCommand(args, ctx);
       case 'git_status':
@@ -393,8 +479,8 @@ export async function runTool(
   }
 }
 
-async function toolReadFile(args: any, ctx: ToolContext): Promise<string> {
-  const { uri, relPath } = resolveInWorkspace(String(args.path ?? ''));
+async function toolReadFile(args: ToolArgs, ctx: ToolContext): Promise<string> {
+  const { uri, relPath } = resolveInWorkspace(readString(args, 'path'));
   let text: string;
   try {
     text = await readText(uri, ctx.settings.maxFileBytes);
@@ -402,12 +488,12 @@ async function toolReadFile(args: any, ctx: ToolContext): Promise<string> {
     return `Error: could not read "${relPath}". It may not exist or may not be a text file.`;
   }
 
-  const start = Number(args.start_line);
-  const end = Number(args.end_line);
-  if (Number.isFinite(start) || Number.isFinite(end)) {
+  const start = readNumber(args, 'start_line');
+  const end = readNumber(args, 'end_line');
+  if (start !== undefined || end !== undefined) {
     const lines = text.split(/\r?\n/);
-    const from = Math.max(1, Number.isFinite(start) ? start : 1);
-    const to = Math.min(lines.length, Number.isFinite(end) ? end : lines.length);
+    const from = Math.max(1, start ?? 1);
+    const to = Math.min(lines.length, end ?? lines.length);
     const numbered = lines
       .slice(from - 1, to)
       .map((l, i) => `${from + i}\t${l}`)
@@ -419,9 +505,9 @@ async function toolReadFile(args: any, ctx: ToolContext): Promise<string> {
   return `${relPath} (${total} lines):\n${text}`;
 }
 
-async function toolListFiles(args: any, ctx: ToolContext): Promise<string> {
-  const glob = String(args.glob ?? '**/*');
-  const max = Math.min(Number(args.max_results) || 200, 1000);
+async function toolListFiles(args: ToolArgs, ctx: ToolContext): Promise<string> {
+  const glob = readString(args, 'glob', '**/*');
+  const max = Math.min(readNumber(args, 'max_results') ?? 200, 1000);
   const found = await vscode.workspace.findFiles(
     searchPattern(glob),
     excludePattern(ctx.settings),
@@ -435,8 +521,8 @@ async function toolListFiles(args: any, ctx: ToolContext): Promise<string> {
   return `${rel.length} file(s) matching "${glob}":\n${rel.join('\n')}`;
 }
 
-async function toolSearch(args: any, ctx: ToolContext): Promise<string> {
-  const pattern = String(args.pattern ?? '');
+async function toolSearch(args: ToolArgs, ctx: ToolContext): Promise<string> {
+  const pattern = readString(args, 'pattern');
   if (!pattern) {
     return 'Error: pattern is required.';
   }
@@ -447,9 +533,9 @@ async function toolSearch(args: any, ctx: ToolContext): Promise<string> {
     return `Error: invalid regular expression. ${(e as Error).message}`;
   }
 
-  const max = Math.min(Number(args.max_results) || 60, 300);
+  const max = Math.min(readNumber(args, 'max_results') ?? 60, 300);
   const files = await vscode.workspace.findFiles(
-    searchPattern(String(args.glob ?? '**/*')),
+    searchPattern(readString(args, 'glob', '**/*')),
     excludePattern(ctx.settings),
     2000
   );
@@ -486,9 +572,9 @@ async function toolSearch(args: any, ctx: ToolContext): Promise<string> {
     : `No matches for /${pattern}/.`;
 }
 
-async function toolWriteFile(args: any, ctx: ToolContext): Promise<string> {
-  const { uri, relPath } = resolveInWorkspace(String(args.path ?? ''));
-  const proposed = String(args.content ?? '');
+async function toolWriteFile(args: ToolArgs, ctx: ToolContext): Promise<string> {
+  const { uri, relPath } = resolveInWorkspace(readString(args, 'path'));
+  const proposed = readString(args, 'content');
 
   let original = '';
   let isNewFile = false;
@@ -502,7 +588,106 @@ async function toolWriteFile(args: any, ctx: ToolContext): Promise<string> {
     return `No change: the proposed content of ${relPath} is identical to what is already on disk.`;
   }
 
+  return proposeEdit(ctx, { uri, relPath, original, proposed, isNewFile });
+}
+
+async function toolApplyPatch(args: ToolArgs, ctx: ToolContext): Promise<string> {
+  const { uri, relPath } = resolveInWorkspace(readString(args, 'path'));
+
+  let original: string;
+  try {
+    original = await readText(uri, 10_000_000);
+  } catch {
+    return `Error: "${relPath}" could not be read, so there is nothing to patch. Use write_file to create a new file.`;
+  }
+
+  const edits = parseEdits(readRaw(args, 'edits'));
+  if (!edits.ok) {
+    return `Error: ${edits.error}`;
+  }
+
+  const outcome = applyEdits(original, edits.edits);
+  if (!outcome.ok) {
+    // Nothing was written, and the message says precisely which edit failed
+    // and why, so the retry can be aimed rather than guessed.
+    return `Patch not applied to ${relPath}. ${outcome.error}`;
+  }
+
+  const note = outcome.normalisedEol
+    ? ' (your snippet used different line endings to the file; matched against the file\u2019s own)'
+    : '';
+
+  const result = await proposeEdit(ctx, {
+    uri,
+    relPath,
+    original,
+    proposed: outcome.text,
+    isNewFile: false
+  });
+  return `${outcome.applied} edit(s) applied to ${relPath}${note}. ${result}`;
+}
+
+interface ProposedChange {
+  uri: vscode.Uri;
+  relPath: string;
+  original: string;
+  proposed: string;
+  isNewFile: boolean;
+}
+
+/**
+ * The single path a file change takes to disk: diff stat, then either
+ * auto-apply or the review gate. Shared by write_file and apply_patch so both
+ * are reviewed, recorded and owner-tagged identically.
+ */
+async function proposeEdit(ctx: ToolContext, change: ProposedChange): Promise<string> {
+  const { relPath } = change;
+
+  // Scope first: refusing before acquiring anything means an out-of-scope
+  // request cannot block a file it was never allowed to touch.
+  const verdict = checkScope(relPath, ctx.scope);
+  if (!verdict.allowed) {
+    return verdict.reason;
+  }
+
+  if (!ctx.locks || !ctx.taskId) {
+    return proposeEditLocked(ctx, change);
+  }
+
+  // Wait for the file rather than editing around another agent. The wait is
+  // bounded by cancellation, so a stalled holder cannot hang this agent for
+  // the rest of the run.
+  const holder = ctx.locks.holder(relPath);
+  if (holder && holder.agentId !== ctx.owner) {
+    ctx.onEditWaiting?.({ relPath, heldBy: holder.agentId });
+  }
+
+  let grant;
+  try {
+    grant = await ctx.locks.acquire(relPath, ctx.taskId, ctx.owner);
+  } catch (err) {
+    return `Could not take ownership of ${relPath}: ${(err as Error).message}`;
+  }
+
+  try {
+    return await proposeEditLocked(ctx, change);
+  } finally {
+    grant.release();
+  }
+}
+
+/** The edit itself, once this agent owns the file. */
+async function proposeEditLocked(
+  ctx: ToolContext,
+  change: ProposedChange
+): Promise<string> {
+  const { uri, relPath, original, proposed, isNewFile } = change;
   const stat = diffStat(original, proposed);
+  const operation: ChangeOperation = isNewFile ? 'create' : 'modify';
+
+  // If the user already had uncommitted work here, say so in the tool result.
+  // The agent is about to mix its edit with theirs and must not tidy it away.
+  const warning = ctx.baseline ? preexistingWarning(ctx.baseline, relPath) : undefined;
 
   if (ctx.settings.autoApproveEdits) {
     if (isNewFile) {
@@ -516,14 +701,32 @@ async function toolWriteFile(args: any, ctx: ToolContext): Promise<string> {
       removed: stat.removed,
       isNewFile
     });
-    ctx.recorder.add('file-changed', `${relPath} (+${stat.added} −${stat.removed}, auto-applied)`);
-    return `Applied automatically (auto-approve is on): ${relPath}, +${stat.added} −${stat.removed}.`;
+    ctx.recorder.add(
+      'file-changed',
+      `${relPath} (+${stat.added} −${stat.removed}, auto-applied)`
+    );
+    ctx.changes?.record({
+      agentId: ctx.owner,
+      taskId: ctx.taskId ?? 'single',
+      filePath: relPath,
+      operation,
+      added: stat.added,
+      removed: stat.removed,
+      applied: true
+    });
+    return [
+      `Applied automatically (auto-approve is on): ${relPath}, +${stat.added} −${stat.removed}.`,
+      warning
+    ]
+      .filter(Boolean)
+      .join(' ');
   }
 
   const id = ctx.edits.nextId();
   const decision = await new Promise<'accepted' | 'rejected'>((resolve) => {
     const edit: PendingEdit = {
       id,
+      owner: ctx.owner,
       uri,
       relPath,
       originalText: original,
@@ -552,11 +755,27 @@ async function toolWriteFile(args: any, ctx: ToolContext): Promise<string> {
     ctx.recorder.add('file-changed', `${relPath} (+${stat.added} −${stat.removed})`);
   }
 
+  // Rejections are recorded too: a later agent must be able to see that this
+  // edit was already refused rather than proposing it again.
+  ctx.changes?.record({
+    agentId: ctx.owner,
+    taskId: ctx.taskId ?? 'single',
+    filePath: relPath,
+    operation,
+    added: stat.added,
+    removed: stat.removed,
+    applied: decision === 'accepted'
+  });
+
   return decision === 'accepted'
-    ? `The user accepted the edit to ${relPath} (+${stat.added} −${stat.removed}). It is now written to disk.`
+    ? [
+        `The user accepted the edit to ${relPath} (+${stat.added} −${stat.removed}). It is now written to disk.`,
+        warning
+      ]
+        .filter(Boolean)
+        .join(' ')
     : `The user REJECTED the edit to ${relPath}. The file is unchanged. Do not retry the same edit — ask what they want different, or stop.`;
 }
-
 
 // ---------------------------------------------------------------------------
 // Shell-backed tools
@@ -606,7 +825,8 @@ async function executeGated(
   }
 
   const id = ctx.commands.nextId();
-  const autoRun = classification.verdict === 'auto' && !ctx.settings.requireApprovalForAll;
+  const autoRun =
+    classification.verdict === 'auto' && !ctx.settings.requireApprovalForAll;
 
   ctx.onCommandProposed({
     id,
@@ -618,7 +838,14 @@ async function executeGated(
 
   if (!autoRun) {
     const decision = await new Promise<'approved' | 'rejected'>((resolve) => {
-      ctx.commands.register({ id, command, cwd, classification, resolve });
+      ctx.commands.register({
+        id,
+        owner: ctx.owner,
+        command,
+        cwd,
+        classification,
+        resolve
+      });
       if (ctx.token.isCancellationRequested) {
         ctx.commands.reject(id);
         return;
@@ -658,20 +885,23 @@ async function executeGated(
   return formatResult(result);
 }
 
-async function toolRunCommand(args: any, ctx: ToolContext): Promise<string> {
-  const command = String(args.command ?? '').trim();
+async function toolRunCommand(args: ToolArgs, ctx: ToolContext): Promise<string> {
+  const command = readString(args, 'command').trim();
   if (!command) {
     return 'Error: command is required.';
   }
 
   let cwd: string;
   try {
-    cwd = resolveCwd(args.cwd);
+    cwd = resolveCwd(readOptionalString(args, 'cwd'));
   } catch (e) {
     return `Error: ${(e as Error).message}`;
   }
 
-  const seconds = Math.min(Math.max(Number(args.timeout_seconds) || 120, 1), 600);
+  const seconds = Math.min(
+    Math.max(readNumber(args, 'timeout_seconds') ?? 120, 1),
+    600
+  );
   return executeGated(command, cwd, ctx, seconds * 1000);
 }
 
@@ -681,13 +911,14 @@ async function toolGit(gitArgs: string[], ctx: ToolContext): Promise<string> {
   return executeGated(command, cwd, ctx, 60_000);
 }
 
-async function toolGitDiff(args: any, ctx: ToolContext): Promise<string> {
+async function toolGitDiff(args: ToolArgs, ctx: ToolContext): Promise<string> {
   const parts = ['diff'];
-  if (args.staged) parts.push('--staged');
-  if (args.stat_only) parts.push('--stat');
+  if (readBoolean(args, 'staged')) parts.push('--staged');
+  if (readBoolean(args, 'stat_only')) parts.push('--stat');
   parts.push('--no-color');
-  if (args.path) {
-    const { relPath } = resolveInWorkspace(String(args.path));
+  const path = readOptionalString(args, 'path');
+  if (path) {
+    const { relPath } = resolveInWorkspace(path);
     parts.push('--', `"${relPath}"`);
   }
   return toolGit(parts, ctx);
@@ -699,24 +930,26 @@ interface Check {
 }
 
 /** Reads the project's real manifests so validation uses its actual scripts. */
-async function discoverChecks(ctx: ToolContext): Promise<Check[]> {
+async function discoverChecks(): Promise<Check[]> {
   const root = workspaceFolders()[0].uri;
   const checks: Check[] = [];
 
-  const readJson = async (name: string): Promise<any | undefined> => {
+  const readJson = async (name: string): Promise<unknown> => {
     try {
-      const bytes = await vscode.workspace.fs.readFile(
-        vscode.Uri.joinPath(root, name)
-      );
-      return JSON.parse(new TextDecoder().decode(bytes));
+      const bytes = await vscode.workspace.fs.readFile(vscode.Uri.joinPath(root, name));
+      return JSON.parse(new TextDecoder().decode(bytes)) as unknown;
     } catch {
       return undefined;
     }
   };
 
   const pkg = await readJson('package.json');
-  if (pkg?.scripts && typeof pkg.scripts === 'object') {
-    const scripts = pkg.scripts as Record<string, string>;
+  const rawScripts =
+    typeof pkg === 'object' && pkg !== null
+      ? (pkg as { scripts?: unknown }).scripts
+      : undefined;
+  if (typeof rawScripts === 'object' && rawScripts !== null) {
+    const scripts = rawScripts as Record<string, unknown>;
     const pick = (kind: Check['kind'], candidates: string[]): void => {
       const found = candidates.find((c) => typeof scripts[c] === 'string');
       if (found) checks.push({ kind, command: `npm run ${found}` });
@@ -751,25 +984,22 @@ async function discoverChecks(ctx: ToolContext): Promise<Check[]> {
     }
   }
 
-  if (
-    !checks.some((c) => c.kind === 'typecheck') &&
-    (await exists('tsconfig.json'))
-  ) {
+  if (!checks.some((c) => c.kind === 'typecheck') && (await exists('tsconfig.json'))) {
     checks.push({ kind: 'typecheck', command: 'npx tsc --noEmit' });
   }
 
   return checks;
 }
 
-async function toolRunValidation(args: any, ctx: ToolContext): Promise<string> {
+async function toolRunValidation(args: ToolArgs, ctx: ToolContext): Promise<string> {
   let checks: Check[];
   try {
-    checks = await discoverChecks(ctx);
+    checks = await discoverChecks();
   } catch (e) {
     return `Error discovering validation scripts: ${(e as Error).message}`;
   }
 
-  const wanted: string[] = Array.isArray(args?.kinds) ? args.kinds.map(String) : [];
+  const wanted = readStringArray(args, 'kinds');
   const selected = wanted.length
     ? checks.filter((c) => wanted.includes(c.kind))
     : checks;
@@ -804,21 +1034,30 @@ async function toolRunValidation(args: any, ctx: ToolContext): Promise<string> {
   ].join('\n');
 }
 
-function toolRecord(args: any, ctx: ToolContext): string {
-  const kind = String(args?.kind ?? 'note');
-  const text = String(args?.text ?? '').trim();
+const RECORD_KINDS = [
+  'requirement',
+  'decision',
+  'file-changed',
+  'bug',
+  'fix',
+  'todo',
+  'note'
+] as const satisfies readonly EntryKind[];
+
+function toolRecord(args: ToolArgs, ctx: ToolContext): string {
+  const text = readString(args, 'text').trim();
   if (!text) {
     return 'Error: text is required.';
   }
-  const allowed = ['requirement', 'decision', 'file-changed', 'bug', 'fix', 'todo', 'note'];
-  if (!allowed.includes(kind)) {
-    return `Error: kind must be one of ${allowed.join(', ')}.`;
+  const kind = readEnum(args, 'kind', RECORD_KINDS);
+  if (!kind) {
+    return `Error: kind must be one of ${RECORD_KINDS.join(', ')}.`;
   }
-  ctx.recorder.add(kind as any, text);
+  ctx.recorder.add(kind, text);
   return `Recorded (${kind}). It will appear in the session report and the local session log.`;
 }
 
-function toolDiagnostics(args: any): string {
+function toolDiagnostics(args: ToolArgs): string {
   const severityName = (s: vscode.DiagnosticSeverity) =>
     ['Error', 'Warning', 'Info', 'Hint'][s] ?? 'Info';
 
@@ -832,8 +1071,9 @@ function toolDiagnostics(args: any): string {
           } ${severityName(d.severity)}: ${d.message}`
       );
 
-  if (args?.path) {
-    const { uri, relPath } = resolveInWorkspace(String(args.path));
+  const requested = readOptionalString(args, 'path');
+  if (requested) {
+    const { uri, relPath } = resolveInWorkspace(requested);
     const lines = format(uri, vscode.languages.getDiagnostics(uri));
     return lines.length
       ? lines.join('\n')

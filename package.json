@@ -2,8 +2,8 @@
   "name": "mseg-azure-ai-vscode-ext",
   "displayName": "Azure AI VScode Chat Extenstion",
   "description": "Agentic AI coding assistant for VS Code, powered by your own Azure OpenAI deployment. Sidebar chat with attachments and Git Bash, plus Azure models in the native Chat view.",
-  "version": "0.4.0",
-  "publisher": "Premraj",
+  "version": "1.0.0",
+  "publisher": "Premraj Tharmarajah",
   "license": "MIT",
   "engines": {
     "vscode": "^1.104.0"
@@ -23,6 +23,66 @@
   ],
   "activationEvents": [],
   "main": "./dist/extension.js",
+  "scripts": {
+    "vscode:prepublish": "npm run package",
+    "compile": "node esbuild.js && vite build",
+    "watch": "node esbuild.js --watch",
+    "package": "node esbuild.js --production && vite build",
+    "check-types": "tsc --noEmit && tsc -p webview/tsconfig.json --noEmit && tsc -p tsconfig.node.json --noEmit",
+    "test": "node -e \"require('node:fs').rmSync('out',{recursive:true,force:true})\" && tsc && node --test \"out/test/*.test.js\"",
+    "vsix": "npx --yes @vscode/vsce package --no-dependencies",
+    "watch:webview": "vite build --watch",
+    "lint": "eslint . --max-warnings=0",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test:webview": "vitest run",
+    "test:all": "npm run test && npm run test:webview",
+    "depcruise": "depcruise src webview/src --config .dependency-cruiser.cjs",
+    "knip": "knip",
+    "size": "size-limit",
+    "verify": "npm run check-types && npm run lint && npm run format:check && npm run depcruise && npm run knip && npm run test:all && npm run package && npm run size",
+    "prepare": "husky"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "@radix-ui/react-collapsible": "^1.1.20",
+    "@radix-ui/react-tooltip": "^1.2.16",
+    "@size-limit/file": "^13.0.3",
+    "@tailwindcss/vite": "^4.3.3",
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.3",
+    "@testing-library/user-event": "^14.6.7",
+    "@types/node": "^20.14.0",
+    "@types/react": "^18.3.31",
+    "@types/react-dom": "^18.3.7",
+    "@types/vscode": "^1.90.0",
+    "@vitejs/plugin-react": "^6.1.1",
+    "@vitest/coverage-v8": "^4.1.11",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "dependency-cruiser": "^18.2.0",
+    "esbuild": "^0.28.2",
+    "eslint": "^9.39.5",
+    "eslint-plugin-jsx-a11y": "^6.10.2",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "husky": "^9.1.7",
+    "jsdom": "^30.0.1",
+    "knip": "^6.34.0",
+    "lint-staged": "^17.4.1",
+    "lucide-react": "^1.39.0",
+    "prettier": "^3.9.6",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "size-limit": "^13.0.3",
+    "tailwind-merge": "^3.6.0",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^5.5.0",
+    "typescript-eslint": "^8.69.0",
+    "vite": "^8.2.2",
+    "vitest": "^4.1.11",
+    "vitest-axe": "^0.1.0",
+    "zustand": "^5.0.15"
+  },
   "contributes": {
     "viewsContainers": {
       "activitybar": [
@@ -245,6 +305,154 @@
           "type": "number",
           "default": 12,
           "description": "Maximum number of tool-calling round trips before the agent loop stops."
+        },
+        "azureAiChat.mode": {
+          "type": "string",
+          "enum": [
+            "fast",
+            "thinking",
+            "agent"
+          ],
+          "enumDescriptions": [
+            "Fast — explanations, lookups and small snippets. Read-only tools, minimal reasoning.",
+            "Thinking — complex changes. Inspects the repository, plans, implements and verifies.",
+            "Agent — completes the task end to end, including running checks and fixing failures."
+          ],
+          "default": "agent",
+          "markdownDescription": "Mode used when the composer's selector is left on **Default**.\n\n`fast` loads only the core prompt and read-only tools, so a \"what does this do\" question costs a fraction of the tokens. `thinking` adds the investigation and verification guidance. `agent` adds the technology-specific standards and the automatic fix-and-retry loop."
+        },
+        "azureAiChat.modelRoles": {
+          "type": "object",
+          "default": {
+            "chat": "",
+            "coordinator": "",
+            "planner": "",
+            "coder": "",
+            "verifier": "",
+            "repair": ""
+          },
+          "additionalProperties": false,
+          "properties": {
+            "chat": {
+              "type": "string",
+              "default": "",
+              "description": "The sidebar chat and any single-agent turn. This is the one that runs today."
+            },
+            "coordinator": {
+              "type": "string",
+              "default": "",
+              "description": "Plans the work, aggregates agent results and decides completion. Give this a strong reasoning deployment."
+            },
+            "planner": {
+              "type": "string",
+              "default": "",
+              "description": "Read-only analysis sweeps that run in parallel. A fast, cheap deployment suits this best."
+            },
+            "coder": {
+              "type": "string",
+              "default": "",
+              "description": "Writes the scoped code changes."
+            },
+            "verifier": {
+              "type": "string",
+              "default": "",
+              "description": "Independently checks the finished work. Give this your strongest deployment — nothing else can approve completion."
+            },
+            "repair": {
+              "type": "string",
+              "default": "",
+              "description": "Fixes what verification rejected."
+            }
+          },
+          "markdownDescription": "Which deployment serves each agent role. Every name here must also appear in `#azureAiChat.connection#` → `model`, which is the list of deployments this extension may call.\n\n```json\n\"azureAiChat.connection\": { \"model\": [\"sol\", \"luna\", \"terra\"] },\n\"azureAiChat.modelRoles\": {\n  \"coordinator\": \"sol\",\n  \"planner\": \"luna\",\n  \"verifier\": \"terra\"\n}\n```\n\nLeave a role empty to use the first deployment in the `model` list. A name that is not in that list is reported once and ignored, rather than failing mid-task.\n\nPointing several roles at one deployment is allowed, but they then share its TPM quota — parallel agents will throttle each other."
+        },
+        "azureAiChat.orchestration": {
+          "type": "string",
+          "enum": [
+            "single",
+            "coordinated",
+            "multi-agent"
+          ],
+          "enumDescriptions": [
+            "The direct chat loop this extension has always used.",
+            "The same single agent, but run through the Coordinator so task state, file locks and the budget apply.",
+            "Full run: parallel planning agents, scoped implementation agents, then an independent verifier with a capped repair loop."
+          ],
+          "default": "single",
+          "markdownDescription": "How a turn is executed.\n\n`single` is the original loop and the safe default.\n\n`coordinated` routes the same work through the Coordinator — one agent, so the result should be identical, but with the task lifecycle, file locks and the token budget in force.\n\n`multi-agent` runs the full pipeline: five read-only planners in parallel, their plans aggregated into scoped implementation tasks, then an **independent Verification Agent** that re-inspects the repository. A task is reported complete only when verification passes. Expect it to cost several times a single turn — see `#azureAiChat.budget#`.\n\nThis setting is the rollback: if a run misbehaves, switch back to `single`."
+        },
+        "azureAiChat.maxVerificationAttempts": {
+          "type": "number",
+          "default": 3,
+          "minimum": 1,
+          "maximum": 10,
+          "markdownDescription": "How many verify → repair → verify rounds a `multi-agent` run may take before it stops and reports failure. An agent that cannot fix something in three attempts is usually making it worse."
+        },
+        "azureAiChat.budget": {
+          "type": "object",
+          "default": {
+            "maxTotalTokens": 500000,
+            "maxAgents": 20,
+            "totalTaskTimeoutMs": 900000,
+            "agentTimeoutMs": 300000
+          },
+          "additionalProperties": false,
+          "properties": {
+            "maxTotalTokens": {
+              "type": "number",
+              "default": 500000,
+              "description": "Prompt plus completion tokens across a whole run, over every agent."
+            },
+            "maxAgents": {
+              "type": "number",
+              "default": 20,
+              "description": "How many agents one run may create in total."
+            },
+            "totalTaskTimeoutMs": {
+              "type": "number",
+              "default": 900000,
+              "description": "Wall-clock ceiling for a whole run, in milliseconds."
+            },
+            "agentTimeoutMs": {
+              "type": "number",
+              "default": 300000,
+              "description": "Wall-clock ceiling for a single agent, in milliseconds."
+            }
+          },
+          "markdownDescription": "What one run may spend. Reaching a limit stops **new** agents starting; work already in flight is allowed to finish, and the run reports that it was cut short.\n\nTokens are the limit that matters on a shared deployment: agent mode’s system prompt alone is roughly 12k tokens, so a handful of wide agents costs more than a long run of narrow ones."
+        },
+        "azureAiChat.concurrency": {
+          "type": "object",
+          "default": {
+            "maxConcurrentAgents": 5,
+            "maxPlanningAgents": 5,
+            "maxCodingAgents": 4,
+            "maxRepairAgents": 3
+          },
+          "additionalProperties": false,
+          "properties": {
+            "maxConcurrentAgents": {
+              "type": "number",
+              "default": 5,
+              "description": "Ceiling across every role at once."
+            },
+            "maxPlanningAgents": {
+              "type": "number",
+              "default": 5,
+              "description": "Read-only planning agents running at once."
+            },
+            "maxCodingAgents": {
+              "type": "number",
+              "default": 4,
+              "description": "Editing agents running at once."
+            },
+            "maxRepairAgents": {
+              "type": "number",
+              "default": 3,
+              "description": "Repair agents running at once."
+            }
+          },
+          "markdownDescription": "How many agents may run at the same time, globally and per role. Per-role limits apply on top of the global one.\n\nThese only take effect once parallel execution lands; with `#azureAiChat.orchestration#` set to `coordinated` today there is one agent per turn."
         },
         "azureAiChat.autoApproveEdits": {
           "type": "boolean",
@@ -498,18 +706,12 @@
       }
     ]
   },
-  "scripts": {
-    "vscode:prepublish": "npm run package",
-    "compile": "node esbuild.js",
-    "watch": "node esbuild.js --watch",
-    "package": "node esbuild.js --production",
-    "check-types": "tsc --noEmit",
-    "vsix": "npx --yes @vscode/vsce package --no-dependencies"
-  },
-  "devDependencies": {
-    "@types/node": "^20.14.0",
-    "@types/vscode": "^1.90.0",
-    "esbuild": "^0.23.0",
-    "typescript": "^5.5.0"
+  "lint-staged": {
+    "*.{ts,tsx,mts,cjs,mjs,json,md,css}": [
+      "prettier --write"
+    ],
+    "*.{ts,tsx}": [
+      "eslint --max-warnings=0 --no-warn-ignored"
+    ]
   }
 }

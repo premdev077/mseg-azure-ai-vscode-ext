@@ -1,4 +1,8 @@
 import * as vscode from 'vscode';
+import { AgentMode, isAgentMode } from './agent/mode';
+import { AGENT_ROLES, ModelRoles } from './agent/roles';
+import { BudgetLimits } from './agent/budget';
+import { ConcurrencyLimits } from './agent/scheduler';
 
 export const SECRET_KEY = 'azureAiChat.apiKey';
 export const CONFIG_SECTION = 'azureAiChat';
@@ -27,6 +31,8 @@ export interface Settings {
   maxTokens: number;
   useMaxCompletionTokens: boolean;
   maxToolIterations: number;
+  /** How many verify → repair rounds a multi-agent run may take. */
+  maxVerificationAttempts: number;
   autoApproveEdits: boolean;
   includeActiveFile: boolean;
   maxFileBytes: number;
@@ -41,6 +47,20 @@ export interface Settings {
   defaultReasoningEffort: '' | 'minimal' | 'low' | 'medium' | 'high';
   saveSessionHistory: boolean;
   saveConversations: boolean;
+  /** Mode used when the composer's selector is left alone. */
+  defaultMode: AgentMode;
+  /** Deployment to use per agent role. Empty entries fall back to `deployment`. */
+  modelRoles: ModelRoles;
+  /**
+   * `single` is the direct chat loop this extension has always used.
+   * `coordinated` runs the same work through the Coordinator, which is the
+   * path multi-agent execution will grow on.
+   */
+  orchestration: 'single' | 'coordinated' | 'multi-agent';
+  /** Overrides for what one run may spend. Unset keys keep their defaults. */
+  budget: Partial<BudgetLimits>;
+  /** Overrides for how many agents run at once. Unset keys keep their defaults. */
+  concurrency: Partial<ConcurrencyLimits>;
 }
 
 function toModelList(model: string | string[] | undefined): string[] {
@@ -77,15 +97,12 @@ export function getSettings(): Settings {
     deployment: models[0] ?? '',
     inlineApiKey: (conn.apiKey ?? '').trim(),
     apiMode: conn.apiMode ?? c.get<'v1' | 'classic'>('apiMode') ?? 'v1',
-    apiVersion: (
-      conn.apiVersion ||
-      c.get<string>('apiVersion') ||
-      '2024-10-21'
-    ).trim(),
+    apiVersion: (conn.apiVersion || c.get<string>('apiVersion') || '2024-10-21').trim(),
     temperature: c.get<number>('temperature') ?? 0.2,
     maxTokens: c.get<number>('maxTokens') ?? 8000,
     useMaxCompletionTokens: c.get<boolean>('useMaxCompletionTokens') ?? false,
     maxToolIterations: c.get<number>('maxToolIterations') ?? 12,
+    maxVerificationAttempts: Math.max(1, c.get<number>('maxVerificationAttempts') ?? 3),
     autoApproveEdits: c.get<boolean>('autoApproveEdits') ?? false,
     includeActiveFile: c.get<boolean>('includeActiveFile') ?? true,
     maxFileBytes: c.get<number>('maxFileBytes') ?? 200000,
@@ -93,13 +110,80 @@ export function getSettings(): Settings {
     systemPrompt: c.get<string>('systemPrompt') ?? '',
     bashPath: (c.get<string>('shell.bashPath') ?? '').trim(),
     requireApprovalForAll: c.get<boolean>('shell.requireApprovalForAll') ?? false,
-    defaultCommandTimeoutSeconds:
-      c.get<number>('shell.timeoutSeconds') ?? 120,
+    defaultCommandTimeoutSeconds: c.get<number>('shell.timeoutSeconds') ?? 120,
     defaultReasoningEffort:
-      (c.get<'' | 'minimal' | 'low' | 'medium' | 'high'>('reasoningEffort') ?? ''),
+      c.get<'' | 'minimal' | 'low' | 'medium' | 'high'>('reasoningEffort') ?? '',
     saveSessionHistory: c.get<boolean>('saveSessionHistory') ?? true,
-    saveConversations: c.get<boolean>('saveConversations') ?? true
+    saveConversations: c.get<boolean>('saveConversations') ?? true,
+    defaultMode: readMode(c.get<string>('mode')),
+    modelRoles: readModelRoles(c.get<Record<string, unknown>>('modelRoles')),
+    orchestration: readOrchestration(c.get<string>('orchestration')),
+    budget: readNumbers(c.get<Record<string, unknown>>('budget'), [
+      'maxTotalTokens',
+      'maxAgents',
+      'totalTaskTimeoutMs',
+      'agentTimeoutMs'
+    ]),
+    concurrency: readNumbers(c.get<Record<string, unknown>>('concurrency'), [
+      'maxConcurrentAgents',
+      'maxPlanningAgents',
+      'maxCodingAgents',
+      'maxRepairAgents'
+    ])
   };
+}
+
+/** Unknown values fall back to `agent`, which is how the loop behaved before modes existed. */
+function readMode(value: string | undefined): AgentMode {
+  return isAgentMode(value) ? value : 'agent';
+}
+
+/**
+ * Reads the role-to-deployment map, keeping only the known roles. Whether a
+ * named deployment actually exists is checked at resolution time, not here —
+ * settings are read constantly and a notice per read would be noise.
+ */
+function readModelRoles(raw: Record<string, unknown> | undefined): ModelRoles {
+  const roles: ModelRoles = {};
+  if (!raw || typeof raw !== 'object') {
+    return roles;
+  }
+  for (const role of AGENT_ROLES) {
+    const value = raw[role];
+    if (typeof value === 'string' && value.trim()) {
+      roles[role] = value.trim();
+    }
+  }
+  return roles;
+}
+
+/** Anything unrecognised falls back to the original single-agent loop. */
+function readOrchestration(
+  value: string | undefined
+): 'single' | 'coordinated' | 'multi-agent' {
+  return value === 'coordinated' || value === 'multi-agent' ? value : 'single';
+}
+
+/**
+ * Picks the named positive numbers out of a settings object. A key left out,
+ * or set to something that is not a usable number, keeps the code default
+ * rather than becoming a limit of zero that would stop the run dead.
+ */
+function readNumbers<K extends string>(
+  raw: Record<string, unknown> | undefined,
+  keys: readonly K[]
+): Partial<Record<K, number>> {
+  const out: Partial<Record<K, number>> = {};
+  if (!raw || typeof raw !== 'object') {
+    return out;
+  }
+  for (const key of keys) {
+    const value = raw[key];
+    if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+      out[key] = value;
+    }
+  }
+  return out;
 }
 
 export function isConfigured(s: Settings): boolean {

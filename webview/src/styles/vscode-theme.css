@@ -1,0 +1,85 @@
+/*
+ * Semantic tokens, each resolving to a VS Code theme variable.
+ *
+ * Components never reference `--vscode-*` directly. One indirection means a
+ * renamed VS Code variable or a wrong mapping is fixed here rather than in
+ * forty class strings, and it keeps the vocabulary about roles ("border",
+ * "danger") rather than about VS Code's internal naming.
+ *
+ * Every token carries a fallback: high-contrast themes do not define every
+ * variable, and a colour that resolves to nothing renders as transparent text.
+ */
+
+:root {
+  --app-bg: var(--vscode-sideBar-background, var(--vscode-editor-background, #1e1e1e));
+  --app-bg-raised: var(
+    --vscode-editorWidget-background,
+    var(--vscode-editor-background, #252526)
+  );
+  --app-bg-sunken: var(--vscode-editor-background, #1e1e1e);
+  --app-bg-hover: var(--vscode-list-hoverBackground, rgb(128 128 128 / 0.12));
+
+  --app-fg: var(--vscode-foreground, #cccccc);
+  --app-fg-muted: var(--vscode-descriptionForeground, #999999);
+  --app-link: var(--vscode-textLink-foreground, #3794ff);
+
+  --app-border: var(
+    --vscode-panel-border,
+    var(--vscode-widget-border, rgb(128 128 128 / 0.35))
+  );
+  --app-focus: var(--vscode-focusBorder, #007fd4);
+
+  --app-accent: var(--vscode-button-background, #0e639c);
+  --app-accent-hover: var(--vscode-button-hoverBackground, #1177bb);
+  --app-accent-fg: var(--vscode-button-foreground, #ffffff);
+  --app-secondary: var(--vscode-button-secondaryBackground, rgb(128 128 128 / 0.2));
+  --app-secondary-hover: var(
+    --vscode-button-secondaryHoverBackground,
+    rgb(128 128 128 / 0.3)
+  );
+  --app-secondary-fg: var(
+    --vscode-button-secondaryForeground,
+    var(--vscode-foreground, #cccccc)
+  );
+
+  --app-input-bg: var(--vscode-input-background, #3c3c3c);
+  --app-input-fg: var(--vscode-input-foreground, #cccccc);
+  --app-placeholder: var(--vscode-input-placeholderForeground, #888888);
+
+  /* Semantic state, kept separate from the accent. Never the only signal. */
+  --app-success: var(--vscode-testing-iconPassed, var(--vscode-charts-green, #89d185));
+  --app-warning: var(
+    --vscode-editorWarning-foreground,
+    var(--vscode-charts-yellow, #cca700)
+  );
+  --app-danger: var(
+    --vscode-editorError-foreground,
+    var(--vscode-errorForeground, #f14c4c)
+  );
+  --app-running: var(
+    --vscode-progressBar-background,
+    var(--vscode-charts-blue, #3794ff)
+  );
+  --app-idle: var(
+    --vscode-disabledForeground,
+    var(--vscode-descriptionForeground, #888888)
+  );
+
+  --app-added: var(--vscode-gitDecoration-addedResourceForeground, #81b88b);
+  --app-removed: var(--vscode-gitDecoration-deletedResourceForeground, #c74e39);
+  --app-modified: var(--vscode-gitDecoration-modifiedResourceForeground, #e2c08d);
+
+  --app-font: var(--vscode-font-family, system-ui, sans-serif);
+  --app-font-mono: var(--vscode-editor-font-family, ui-monospace, Consolas, monospace);
+  --app-font-size: var(--vscode-font-size, 13px);
+}
+
+/*
+ * High contrast relies on borders and outlines rather than subtle background
+ * shifts, which those themes deliberately flatten.
+ */
+body.vscode-high-contrast,
+body.vscode-high-contrast-light {
+  --app-border: var(--vscode-contrastBorder, currentColor);
+  --app-bg-hover: transparent;
+}

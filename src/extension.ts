@@ -24,6 +24,7 @@ import { ReportPanel, exportReport } from './report';
 import { registerLanguageModelTools } from './lmTools';
 import { ConversationStore } from './conversations';
 import { clearCapabilityCache } from './azureClient';
+import { AzureProvider } from './ai/azureProvider';
 
 export function activate(context: vscode.ExtensionContext): void {
   const edits = new EditReviewManager();
@@ -37,12 +38,18 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(commands, recorder);
 
   const store = new ConversationStore(context);
+
+  // The agent loop talks to this, not to azureClient, so another provider can
+  // be added without touching the loop, the tools or the UI.
+  const model = new AzureProvider(getSettings, () => getApiKey(context));
+
   const provider = new ChatViewProvider(
     context,
     edits,
     commands,
     recorder,
-    store
+    store,
+    model
   );
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(ChatViewProvider.viewType, provider, {
@@ -145,17 +152,14 @@ export function activate(context: vscode.ExtensionContext): void {
       }
     }),
 
-    vscode.commands.registerCommand(
-      'azureAiChat.openConversationsFolder',
-      async () => {
-        try {
-          await vscode.workspace.fs.createDirectory(store.folder);
-        } catch {
-          /* already there */
-        }
-        await vscode.env.openExternal(store.folder);
+    vscode.commands.registerCommand('azureAiChat.openConversationsFolder', async () => {
+      try {
+        await vscode.workspace.fs.createDirectory(store.folder);
+      } catch {
+        /* already there */
       }
-    ),
+      await vscode.env.openExternal(store.folder);
+    }),
 
     vscode.commands.registerCommand('azureAiChat.showReport', () => {
       ReportPanel.show(context, recorder);
@@ -184,18 +188,16 @@ export function activate(context: vscode.ExtensionContext): void {
       await resumeSession(provider);
     }),
 
-    vscode.workspace.onDidChangeConfiguration(
-      (e: vscode.ConfigurationChangeEvent) => {
-        if (e.affectsConfiguration('azureAiChat')) {
-          provider.refreshStatus();
-          void offerToSecureInlineKey(context);
-        }
-        if (e.affectsConfiguration('azureAiChat.connection')) {
-          // A different endpoint or deployment may have different capabilities.
-          clearCapabilityCache();
-        }
+    vscode.workspace.onDidChangeConfiguration((e: vscode.ConfigurationChangeEvent) => {
+      if (e.affectsConfiguration('azureAiChat')) {
+        provider.refreshStatus();
+        void offerToSecureInlineKey(context);
       }
-    )
+      if (e.affectsConfiguration('azureAiChat.connection')) {
+        // A different endpoint or deployment may have different capabilities.
+        clearCapabilityCache();
+      }
+    })
   );
 
   // A key sitting in settings.json is worth flagging once, quietly.
@@ -221,7 +223,7 @@ async function openNativeChatView(): Promise<void> {
     }
   }
   vscode.window.showWarningMessage(
-    "Azure AI Chat: this VS Code build has no built-in Chat view. Use the Azure AI Chat sidebar instead, or update VS Code to 1.122 or later."
+    'Azure AI Chat: this VS Code build has no built-in Chat view. Use the Azure AI Chat sidebar instead, or update VS Code to 1.122 or later.'
   );
 }
 
@@ -301,9 +303,7 @@ async function testConnection(context: vscode.ExtensionContext): Promise<void> {
       const allOk = results.every((r) => r.includes(': OK ('));
       const summary = results.join('\n');
       if (allOk) {
-        vscode.window.showInformationMessage(
-          `Azure AI Chat: connected.\n${summary}`
-        );
+        vscode.window.showInformationMessage(`Azure AI Chat: connected.\n${summary}`);
       } else {
         vscode.window.showErrorMessage(`Azure AI Chat:\n${summary}`);
       }

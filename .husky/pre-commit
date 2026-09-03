@@ -1,0 +1,3 @@
+# Fast checks only: formatting and lint on what is staged. The full gate runs
+# in CI — a pre-commit hook that takes two minutes is a hook people bypass.
+npx lint-staged

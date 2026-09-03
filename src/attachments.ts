@@ -44,18 +44,76 @@ let counter = 0;
 export function attachmentPickerFilters(): Record<string, string[]> {
   return {
     'All supported': [
-      'png', 'jpg', 'jpeg', 'gif', 'webp',
-      'pdf', 'docx', 'pptx', 'xlsx',
-      'txt', 'md', 'json', 'html', 'htm', 'csv', 'tsv', 'xml', 'yaml', 'yml',
-      'ts', 'tsx', 'js', 'jsx', 'py', 'cs', 'java', 'go', 'rb', 'php',
-      'sql', 'sh', 'ps1', 'css', 'scss', 'log', 'ini', 'toml', 'env'
+      'png',
+      'jpg',
+      'jpeg',
+      'gif',
+      'webp',
+      'pdf',
+      'docx',
+      'pptx',
+      'xlsx',
+      'txt',
+      'md',
+      'json',
+      'html',
+      'htm',
+      'csv',
+      'tsv',
+      'xml',
+      'yaml',
+      'yml',
+      'ts',
+      'tsx',
+      'js',
+      'jsx',
+      'py',
+      'cs',
+      'java',
+      'go',
+      'rb',
+      'php',
+      'sql',
+      'sh',
+      'ps1',
+      'css',
+      'scss',
+      'log',
+      'ini',
+      'toml',
+      'env'
     ],
     Images: ['png', 'jpg', 'jpeg', 'gif', 'webp'],
     Documents: ['pdf', 'docx', 'pptx', 'xlsx'],
     'Text and code': [
-      'txt', 'md', 'json', 'html', 'htm', 'csv', 'tsv', 'xml', 'yaml', 'yml',
-      'ts', 'tsx', 'js', 'jsx', 'py', 'cs', 'java', 'go', 'rb', 'php',
-      'sql', 'sh', 'ps1', 'css', 'scss', 'log', 'ini', 'toml'
+      'txt',
+      'md',
+      'json',
+      'html',
+      'htm',
+      'csv',
+      'tsv',
+      'xml',
+      'yaml',
+      'yml',
+      'ts',
+      'tsx',
+      'js',
+      'jsx',
+      'py',
+      'cs',
+      'java',
+      'go',
+      'rb',
+      'php',
+      'sql',
+      'sh',
+      'ps1',
+      'css',
+      'scss',
+      'log',
+      'ini',
+      'toml'
     ],
     'All files': ['*']
   };
@@ -75,7 +133,11 @@ export async function readAttachment(
     bytes = await vscode.workspace.fs.readFile(uri);
   } catch (e) {
     return {
-      id, fsPath, name, kind: 'unsupported', bytes: 0,
+      id,
+      fsPath,
+      name,
+      kind: 'unsupported',
+      bytes: 0,
       error: `Could not read the file: ${(e as Error).message}`
     };
   }
@@ -88,7 +150,8 @@ export async function readAttachment(
   if (IMAGE_MIME[ext]) {
     if (size > MAX_IMAGE_BYTES) {
       return {
-        ...base, kind: 'unsupported',
+        ...base,
+        kind: 'unsupported',
         error: `Image is ${formatBytes(size)}; the limit is ${formatBytes(MAX_IMAGE_BYTES)}. Resize it and try again.`
       };
     }
@@ -102,7 +165,8 @@ export async function readAttachment(
 
   if (ext === '.bmp' || ext === '.tif' || ext === '.tiff' || ext === '.svg') {
     return {
-      ...base, kind: 'unsupported',
+      ...base,
+      kind: 'unsupported',
       error: `${ext} images are not accepted by the vision API. Convert to PNG, JPEG, GIF or WebP first.`
     };
   }
@@ -113,36 +177,53 @@ export async function readAttachment(
       const r = extractPdf(buf);
       if (r.looksScanned) {
         return {
-          ...base, kind: 'document', text: '',
+          ...base,
+          kind: 'document',
+          text: '',
           note: `${r.pageCount} page(s), but no text layer — this looks like a scan. Attach a page as an image instead so the model can read it.`
         };
       }
       return {
-        ...base, kind: 'document',
+        ...base,
+        kind: 'document',
         ...truncate(r.text, settings.maxFileBytes),
         note: `${r.pageCount} page(s)`
       };
     }
 
     if (ext === '.docx' || ext === '.docm' || ext === '.dotx') {
-      return { ...base, kind: 'document', ...truncate(extractDocx(buf), settings.maxFileBytes) };
+      return {
+        ...base,
+        kind: 'document',
+        ...truncate(extractDocx(buf), settings.maxFileBytes)
+      };
     }
     if (ext === '.pptx' || ext === '.pptm') {
-      return { ...base, kind: 'document', ...truncate(extractPptx(buf), settings.maxFileBytes) };
+      return {
+        ...base,
+        kind: 'document',
+        ...truncate(extractPptx(buf), settings.maxFileBytes)
+      };
     }
     if (ext === '.xlsx' || ext === '.xlsm') {
-      return { ...base, kind: 'document', ...truncate(extractXlsx(buf), settings.maxFileBytes) };
+      return {
+        ...base,
+        kind: 'document',
+        ...truncate(extractXlsx(buf), settings.maxFileBytes)
+      };
     }
   } catch (e) {
     return {
-      ...base, kind: 'unsupported',
+      ...base,
+      kind: 'unsupported',
       error: `Could not read this ${ext} file: ${(e as Error).message}`
     };
   }
 
   if (LEGACY_OFFICE.has(ext)) {
     return {
-      ...base, kind: 'unsupported',
+      ...base,
+      kind: 'unsupported',
       error: `${ext} is the old binary Office format. Save it as ${ext}x and attach that.`
     };
   }
@@ -150,12 +231,17 @@ export async function readAttachment(
   // --- plain text and code ------------------------------------------------
   if (looksBinary(buf)) {
     return {
-      ...base, kind: 'unsupported',
+      ...base,
+      kind: 'unsupported',
       error: 'This looks like a binary file, so there is no text to read.'
     };
   }
 
-  return { ...base, kind: 'text', ...truncate(buf.toString('utf8'), settings.maxFileBytes) };
+  return {
+    ...base,
+    kind: 'text',
+    ...truncate(buf.toString('utf8'), settings.maxFileBytes)
+  };
 }
 
 function truncate(text: string, limit: number): { text: string; note?: string } {
@@ -191,12 +277,31 @@ export function formatBytes(n: number): string {
 function fenceLanguage(name: string): string {
   const ext = path.extname(name).toLowerCase();
   const map: Record<string, string> = {
-    '.ts': 'ts', '.tsx': 'tsx', '.js': 'js', '.jsx': 'jsx', '.py': 'python',
-    '.cs': 'csharp', '.java': 'java', '.go': 'go', '.rb': 'ruby',
-    '.php': 'php', '.sql': 'sql', '.sh': 'bash', '.ps1': 'powershell',
-    '.json': 'json', '.html': 'html', '.htm': 'html', '.xml': 'xml',
-    '.css': 'css', '.scss': 'scss', '.yaml': 'yaml', '.yml': 'yaml',
-    '.md': 'markdown', '.csv': 'csv', '.toml': 'toml', '.ini': 'ini'
+    '.ts': 'ts',
+    '.tsx': 'tsx',
+    '.js': 'js',
+    '.jsx': 'jsx',
+    '.py': 'python',
+    '.cs': 'csharp',
+    '.java': 'java',
+    '.go': 'go',
+    '.rb': 'ruby',
+    '.php': 'php',
+    '.sql': 'sql',
+    '.sh': 'bash',
+    '.ps1': 'powershell',
+    '.json': 'json',
+    '.html': 'html',
+    '.htm': 'html',
+    '.xml': 'xml',
+    '.css': 'css',
+    '.scss': 'scss',
+    '.yaml': 'yaml',
+    '.yml': 'yaml',
+    '.md': 'markdown',
+    '.csv': 'csv',
+    '.toml': 'toml',
+    '.ini': 'ini'
   };
   return map[ext] ?? 'text';
 }
@@ -206,9 +311,7 @@ function fenceLanguage(name: string): string {
  * documents become fenced blocks; images become image_url parts, which is
  * what the Azure vision-capable deployments expect.
  */
-export function attachmentsToContentParts(
-  attachments: Attachment[]
-): ContentPart[] {
+export function attachmentsToContentParts(attachments: Attachment[]): ContentPart[] {
   const parts: ContentPart[] = [];
 
   for (const a of attachments) {
@@ -219,7 +322,10 @@ export function attachmentsToContentParts(
     }
 
     if (a.error) {
-      parts.push({ type: 'text', text: `[Attachment ${a.name} could not be read: ${a.error}]` });
+      parts.push({
+        type: 'text',
+        text: `[Attachment ${a.name} could not be read: ${a.error}]`
+      });
       continue;
     }
 
@@ -237,9 +343,4 @@ export function attachmentsToContentParts(
   }
 
   return parts;
-}
-
-/** True when any attachment needs a vision-capable deployment. */
-export function hasImages(attachments: Attachment[]): boolean {
-  return attachments.some((a) => a.kind === 'image');
 }

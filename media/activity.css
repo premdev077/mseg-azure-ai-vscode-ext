@@ -1,0 +1,94 @@
+.activity-stream {
+  border: 1px solid var(--vscode-panel-border);
+  border-radius: var(--radius);
+  background: var(--vscode-editorWidget-background, var(--vscode-input-background));
+  overflow: hidden;
+}
+
+.activity-stream summary {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 9px;
+  color: var(--vscode-foreground);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+  list-style: none;
+  user-select: none;
+}
+
+.activity-stream summary::-webkit-details-marker { display: none; }
+.activity-stream summary::after {
+  content: '\25b8';
+  margin-left: auto;
+  color: var(--vscode-descriptionForeground);
+}
+.activity-stream[open] summary::after { content: '\25be'; }
+
+.activity-spinner {
+  width: 10px;
+  height: 10px;
+  flex: none;
+  border: 1.5px solid var(--vscode-panel-border);
+  border-top-color: var(--vscode-progressBar-background, #0e70c0);
+  border-radius: 50%;
+  animation: activity-spin .8s linear infinite;
+}
+
+@keyframes activity-spin { to { transform: rotate(360deg); } }
+
+.activity-safety {
+  padding: 0 9px 7px 26px;
+  color: var(--vscode-descriptionForeground);
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.activity-events {
+  border-top: 1px solid var(--vscode-panel-border);
+  padding: 5px 9px 7px;
+}
+
+.activity-event {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  padding: 4px 0;
+  font-size: 11px;
+}
+
+.activity-state {
+  width: 7px;
+  height: 7px;
+  margin-top: 4px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--vscode-descriptionForeground);
+}
+
+.activity-event.running .activity-state {
+  background: var(--vscode-progressBar-background, #0e70c0);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--vscode-progressBar-background, #0e70c0) 18%, transparent);
+}
+.activity-event.done .activity-state { background: var(--vscode-testing-iconPassed, #73c991); }
+.activity-event.warning .activity-state { background: var(--vscode-editorWarning-foreground, #cca700); }
+.activity-event.info .activity-state { background: var(--vscode-charts-blue, #4daafc); }
+
+.activity-content { min-width: 0; flex: 1; }
+.activity-title { color: var(--vscode-foreground); overflow-wrap: anywhere; }
+.activity-detail {
+  margin-top: 1px;
+  color: var(--vscode-descriptionForeground);
+  font-size: 10px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.activity-stream.done summary { color: var(--vscode-testing-iconPassed, #73c991); }
+.activity-stream.cancelled summary { color: var(--vscode-editorWarning-foreground, #cca700); }
+.activity-stream.error summary { color: var(--vscode-errorForeground, #f14c4c); }
+
+@media (prefers-reduced-motion: reduce) {
+  .activity-spinner { animation: none; }
+}

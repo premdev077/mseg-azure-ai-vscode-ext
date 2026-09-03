@@ -1,0 +1,107 @@
+@import './vscode-theme.css';
+@import 'tailwindcss';
+
+/*
+ * Tokens exposed to Tailwind, so utilities stay idiomatic: `bg-surface`,
+ * `text-muted`, `border-line` rather than arbitrary `bg-[var(--app-bg)]`
+ * values scattered through the components.
+ */
+@theme {
+  --color-canvas: var(--app-bg);
+  --color-surface: var(--app-bg-raised);
+  --color-sunken: var(--app-bg-sunken);
+  --color-hover: var(--app-bg-hover);
+
+  --color-ink: var(--app-fg);
+  --color-muted: var(--app-fg-muted);
+  --color-link: var(--app-link);
+
+  --color-line: var(--app-border);
+  --color-focus: var(--app-focus);
+
+  --color-accent: var(--app-accent);
+  --color-accent-hover: var(--app-accent-hover);
+  --color-accent-ink: var(--app-accent-fg);
+  --color-secondary: var(--app-secondary);
+  --color-secondary-hover: var(--app-secondary-hover);
+  --color-secondary-ink: var(--app-secondary-fg);
+
+  --color-field: var(--app-input-bg);
+  --color-field-ink: var(--app-input-fg);
+  --color-placeholder: var(--app-placeholder);
+
+  --color-success: var(--app-success);
+  --color-warning: var(--app-warning);
+  --color-danger: var(--app-danger);
+  --color-running: var(--app-running);
+  --color-idle: var(--app-idle);
+
+  --color-added: var(--app-added);
+  --color-removed: var(--app-removed);
+  --color-modified: var(--app-modified);
+
+  --font-sans: var(--app-font);
+  --font-mono: var(--app-font-mono);
+
+  /* Compact scale: this sits in a sidebar beside an editor, not on a page. */
+  --text-2xs: 10px;
+  --text-xs: 11px;
+  --text-sm: 12px;
+  --text-base: var(--app-font-size);
+  --text-lg: 15px;
+
+  --radius-sm: 2px;
+  --radius-md: 4px;
+
+  --spacing: 4px;
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+    margin: 0;
+  }
+
+  body {
+    background: var(--app-bg);
+    color: var(--app-fg);
+    font-family: var(--app-font);
+    font-size: var(--app-font-size);
+    line-height: 1.5;
+    overflow: hidden;
+  }
+
+  /* Focus must survive theming; never removed without a replacement. */
+  :focus-visible {
+    outline: 1px solid var(--app-focus);
+    outline-offset: 1px;
+  }
+
+  code,
+  pre {
+    font-family: var(--app-font-mono);
+  }
+}
+
+@layer utilities {
+  /* Long paths read better truncated from the left. */
+  .truncate-start {
+    direction: rtl;
+    text-align: left;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

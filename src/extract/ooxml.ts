@@ -3,9 +3,7 @@ import { readMatchingEntries, readNamedEntry } from './zip';
 /** Decodes the five XML predefined entities plus numeric references. */
 function decodeEntities(s: string): string {
   return s
-    .replace(/&#x([0-9a-fA-F]+);/g, (_, h) =>
-      String.fromCodePoint(parseInt(h, 16))
-    )
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, h) => String.fromCodePoint(parseInt(h, 16)))
     .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(parseInt(d, 10)))
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
@@ -84,10 +82,7 @@ export function extractPptx(buf: Buffer): string {
   for (const { name, data } of readMatchingEntries(buf, (n) =>
     /^ppt\/notesSlides\/notesSlide\d+\.xml$/.test(n)
   )) {
-    notes.set(
-      slideNumber(name),
-      extractFromXml(data.toString('utf8'), 't', ['p'])
-    );
+    notes.set(slideNumber(name), extractFromXml(data.toString('utf8'), 't', ['p']));
   }
 
   return slides
@@ -163,10 +158,7 @@ export function extractXlsx(buf: Buffer): string {
         } else {
           const v = /<v(?:\s[^>]*)?>([\s\S]*?)<\/v>/.exec(inner)?.[1];
           if (v !== undefined) {
-            value =
-              type === 's'
-                ? shared[parseInt(v, 10)] ?? ''
-                : decodeEntities(v);
+            value = type === 's' ? (shared[parseInt(v, 10)] ?? '') : decodeEntities(v);
           }
         }
         cells.push(value);

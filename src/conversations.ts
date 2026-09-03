@@ -90,9 +90,7 @@ export class ConversationStore {
       if (type === vscode.FileType.Directory || !name.endsWith('.json')) {
         continue;
       }
-      const record = await this.readFile(
-        vscode.Uri.joinPath(this.folder, name)
-      );
+      const record = await this.readFile(vscode.Uri.joinPath(this.folder, name));
       if (record) {
         out.push({
           id: record.id,
@@ -132,14 +130,10 @@ export class ConversationStore {
     return items.length;
   }
 
-  private async readFile(
-    uri: vscode.Uri
-  ): Promise<StoredConversation | undefined> {
+  private async readFile(uri: vscode.Uri): Promise<StoredConversation | undefined> {
     try {
       const bytes = await vscode.workspace.fs.readFile(uri);
-      const parsed = JSON.parse(
-        new TextDecoder().decode(bytes)
-      ) as StoredConversation;
+      const parsed = JSON.parse(new TextDecoder().decode(bytes)) as StoredConversation;
       if (parsed && typeof parsed.id === 'string' && Array.isArray(parsed.messages)) {
         return parsed;
       }
@@ -269,9 +263,7 @@ function contentToText(content: ChatMessage['content']): string {
     return content;
   }
   if (Array.isArray(content)) {
-    return content
-      .map((p) => (p.type === 'text' ? p.text : '[image]'))
-      .join('\n');
+    return content.map((p) => (p.type === 'text' ? p.text : '[image]')).join('\n');
   }
   return '';
 }

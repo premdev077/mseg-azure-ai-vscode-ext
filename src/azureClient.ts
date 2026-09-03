@@ -1,4 +1,5 @@
 import { Settings, chatCompletionsUrl } from './config';
+import type { ReasoningEffort } from './ai/reasoning';
 
 export type Role = 'system' | 'user' | 'assistant' | 'tool';
 
@@ -43,7 +44,7 @@ export interface StreamHandlers {
   onNotice?: (message: string) => void;
 }
 
-export type ReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'high';
+export type { ReasoningEffort } from './ai/reasoning';
 
 export interface RequestOptions {
   /** Deployment to call. Defaults to the first configured model. */
@@ -63,6 +64,30 @@ export interface StreamResult {
     total_tokens?: number;
     completion_tokens_details?: { reasoning_tokens?: number };
   };
+}
+
+/**
+ * One server-sent frame from the completions stream.
+ *
+ * Every field is optional because the shape varies by api-version and by
+ * deployment family — a reasoning model sends fields a chat model never does,
+ * and the parser has to read what is there without assuming the rest.
+ */
+interface StreamChunk {
+  usage?: StreamResult['usage'];
+  choices?: Array<{
+    finish_reason?: string | null;
+    delta?: {
+      content?: string;
+      reasoning_content?: string;
+      reasoning?: string;
+      tool_calls?: Array<{
+        index?: number;
+        id?: string;
+        function?: { name?: string; arguments?: string };
+      }>;
+    };
+  }>;
 }
 
 interface ToolCallAccumulator {
@@ -123,7 +148,8 @@ export async function streamChatCompletion(
   request: RequestOptions = {}
 ): Promise<StreamResult> {
   const deployment = request.model || settings.deployment;
-  const wantsReasoning = Boolean(request.reasoningEffort) && request.reasoningEffort !== 'none';
+  const wantsReasoning =
+    Boolean(request.reasoningEffort) && request.reasoningEffort !== 'none';
 
   // Known conflict: drop the effort up front rather than spending a round trip
   // discovering it again.
@@ -135,7 +161,15 @@ export async function streamChatCompletion(
   }
 
   try {
-    return await streamOnce(settings, apiKey, messages, tools, handlers, signal, request);
+    return await streamOnce(
+      settings,
+      apiKey,
+      messages,
+      tools,
+      handlers,
+      signal,
+      request
+    );
   } catch (err) {
     const message = (err as Error)?.message ?? '';
     if (
@@ -263,99 +297,98 @@ async function streamOnce(
   }
 
   async function readStream(): Promise<StreamResult> {
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) {
-      break;
-    }
-    buffer += decoder.decode(value, { stream: true });
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) {
+        break;
+      }
+      buffer += decoder.decode(value, { stream: true });
 
-    // SSE frames are separated by a blank line.
-    let sep: number;
-    while ((sep = indexOfFrameEnd(buffer)) !== -1) {
-      const rawFrame = buffer.slice(0, sep);
-      buffer = buffer.slice(sep).replace(/^(\r?\n){1,2}/, '');
+      // SSE frames are separated by a blank line.
+      let sep: number;
+      while ((sep = indexOfFrameEnd(buffer)) !== -1) {
+        const rawFrame = buffer.slice(0, sep);
+        buffer = buffer.slice(sep).replace(/^(\r?\n){1,2}/, '');
 
-      for (const line of rawFrame.split(/\r?\n/)) {
-        if (!line.startsWith('data:')) {
-          continue;
-        }
-        const data = line.slice(5).trim();
-        if (data === '' ) {
-          continue;
-        }
-        if (data === '[DONE]') {
-          buffer = '';
-          return finish();
-        }
+        for (const line of rawFrame.split(/\r?\n/)) {
+          if (!line.startsWith('data:')) {
+            continue;
+          }
+          const data = line.slice(5).trim();
+          if (data === '') {
+            continue;
+          }
+          if (data === '[DONE]') {
+            buffer = '';
+            return finish();
+          }
 
-        let chunk: any;
-        try {
-          chunk = JSON.parse(data);
-        } catch {
-          continue;
-        }
+          let chunk: StreamChunk;
+          try {
+            chunk = JSON.parse(data) as StreamChunk;
+          } catch {
+            continue;
+          }
 
-        if (chunk.usage) {
-          usage = chunk.usage;
-        }
+          if (chunk.usage) {
+            usage = chunk.usage;
+          }
 
-        const choice = chunk.choices?.[0];
-        if (!choice) {
-          continue;
-        }
-        if (choice.finish_reason) {
-          finishReason = choice.finish_reason;
-        }
+          const choice = chunk.choices?.[0];
+          if (!choice) {
+            continue;
+          }
+          if (choice.finish_reason) {
+            finishReason = choice.finish_reason;
+          }
 
-        const delta = choice.delta;
-        if (!delta) {
-          continue;
-        }
+          const delta = choice.delta;
+          if (!delta) {
+            continue;
+          }
 
-        if (typeof delta.content === 'string' && delta.content.length > 0) {
-          content += delta.content;
-          handlers.onText(delta.content);
-        }
+          if (typeof delta.content === 'string' && delta.content.length > 0) {
+            content += delta.content;
+            handlers.onText(delta.content);
+          }
 
-        // Some deployments stream a reasoning summary alongside the answer.
-        const reasoningDelta =
-          typeof delta.reasoning_content === 'string'
-            ? delta.reasoning_content
-            : typeof delta.reasoning === 'string'
-              ? delta.reasoning
-              : undefined;
-        if (reasoningDelta) {
-          reasoningText += reasoningDelta;
-          handlers.onReasoning?.(reasoningDelta);
-        }
+          // Some deployments stream a reasoning summary alongside the answer.
+          const reasoningDelta =
+            typeof delta.reasoning_content === 'string'
+              ? delta.reasoning_content
+              : typeof delta.reasoning === 'string'
+                ? delta.reasoning
+                : undefined;
+          if (reasoningDelta) {
+            reasoningText += reasoningDelta;
+            handlers.onReasoning?.(reasoningDelta);
+          }
 
-        if (Array.isArray(delta.tool_calls)) {
-          for (const tc of delta.tool_calls) {
-            const idx: number = tc.index ?? 0;
-            const existing =
-              toolAcc.get(idx) ?? { id: '', name: '', args: '' };
-            if (tc.id) {
-              existing.id = tc.id;
-            }
-            if (tc.function?.name) {
-              existing.name += tc.function.name;
-            }
-            if (tc.function?.arguments) {
-              existing.args += tc.function.arguments;
-            }
-            toolAcc.set(idx, existing);
-            if (existing.name && !announced.has(idx)) {
-              announced.add(idx);
-              handlers.onToolCallProgress?.(existing.name);
+          if (Array.isArray(delta.tool_calls)) {
+            for (const tc of delta.tool_calls) {
+              const idx = tc.index ?? 0;
+              const existing = toolAcc.get(idx) ?? { id: '', name: '', args: '' };
+              if (tc.id) {
+                existing.id = tc.id;
+              }
+              if (tc.function?.name) {
+                existing.name += tc.function.name;
+              }
+              if (tc.function?.arguments) {
+                existing.args += tc.function.arguments;
+              }
+              toolAcc.set(idx, existing);
+              if (existing.name && !announced.has(idx)) {
+                announced.add(idx);
+                handlers.onToolCallProgress?.(existing.name);
+              }
             }
           }
         }
       }
     }
-  }
 
-  return finish();
+    return finish();
   }
 
   function finish(): StreamResult {

@@ -45,7 +45,10 @@ const DELIMITERS = new Set([
 ]);
 
 class Lexer {
-  constructor(public buf: Buffer, public pos = 0) {}
+  constructor(
+    public buf: Buffer,
+    public pos = 0
+  ) {}
 
   skipWs(): void {
     while (this.pos < this.buf.length) {
@@ -175,12 +178,23 @@ class Lexer {
       if (c === 0x5c) {
         const n = this.buf[this.pos++];
         switch (n) {
-          case 0x6e: out.push(10); break;
-          case 0x72: out.push(13); break;
-          case 0x74: out.push(9); break;
-          case 0x62: out.push(8); break;
-          case 0x66: out.push(12); break;
-          case 0x0a: break; // line continuation
+          case 0x6e:
+            out.push(10);
+            break;
+          case 0x72:
+            out.push(13);
+            break;
+          case 0x74:
+            out.push(9);
+            break;
+          case 0x62:
+            out.push(8);
+            break;
+          case 0x66:
+            out.push(12);
+            break;
+          case 0x0a:
+            break; // line continuation
           case 0x0d:
             if (this.buf[this.pos] === 0x0a) this.pos++;
             break;
@@ -329,11 +343,7 @@ export class PdfDocument {
     return v;
   }
 
-  decodeStream(s: {
-    dict: PdfDict;
-    streamStart: number;
-    streamEnd: number;
-  }): Buffer {
+  decodeStream(s: { dict: PdfDict; streamStart: number; streamEnd: number }): Buffer {
     let raw = this.buf.subarray(s.streamStart, s.streamEnd);
 
     // Trust /Length when it is sane; the endstream scan can overshoot if the
@@ -622,7 +632,16 @@ function extractPageText(content: Buffer, fonts: Map<string, FontInfo>): string 
     if (lexer.pos >= content.length) break;
 
     const c = content[lexer.pos];
-    if (c === 0x28 || c === 0x3c || c === 0x5b || c === 0x2f || (c >= 0x30 && c <= 0x39) || c === 0x2b || c === 0x2d || c === 0x2e) {
+    if (
+      c === 0x28 ||
+      c === 0x3c ||
+      c === 0x5b ||
+      c === 0x2f ||
+      (c >= 0x30 && c <= 0x39) ||
+      c === 0x2b ||
+      c === 0x2d ||
+      c === 0x2e
+    ) {
       const before = lexer.pos;
       const v = lexer.parseValue();
       if (lexer.pos === before) lexer.pos++;
@@ -742,8 +761,7 @@ function inflateTolerant(data: Buffer): Buffer {
     () => zlib.inflateSync(data),
     () => zlib.inflateRawSync(data),
     () => zlib.inflateSync(data, { finishFlush: zlib.constants.Z_SYNC_FLUSH }),
-    () =>
-      zlib.inflateRawSync(data, { finishFlush: zlib.constants.Z_SYNC_FLUSH }),
+    () => zlib.inflateRawSync(data, { finishFlush: zlib.constants.Z_SYNC_FLUSH }),
     // Some writers leave leading whitespace before the zlib header.
     () =>
       zlib.inflateSync(data.subarray(findZlibStart(data)), {
@@ -791,14 +809,24 @@ function decodeAscii85(data: Buffer): Buffer {
     if (v < 0 || v > 84) continue;
     tuple = tuple * 85 + v;
     if (++count === 5) {
-      out.push((tuple >>> 24) & 0xff, (tuple >>> 16) & 0xff, (tuple >>> 8) & 0xff, tuple & 0xff);
+      out.push(
+        (tuple >>> 24) & 0xff,
+        (tuple >>> 16) & 0xff,
+        (tuple >>> 8) & 0xff,
+        tuple & 0xff
+      );
       tuple = 0;
       count = 0;
     }
   }
   if (count > 0) {
     for (let i = count; i < 5; i++) tuple = tuple * 85 + 84;
-    const bytes = [(tuple >>> 24) & 0xff, (tuple >>> 16) & 0xff, (tuple >>> 8) & 0xff, tuple & 0xff];
+    const bytes = [
+      (tuple >>> 24) & 0xff,
+      (tuple >>> 16) & 0xff,
+      (tuple >>> 8) & 0xff,
+      tuple & 0xff
+    ];
     out.push(...bytes.slice(0, count - 1));
   }
   return Buffer.from(out);
@@ -828,9 +856,15 @@ function undoPngPredictor(
       const b = prev[i];
       const c = i >= bpp ? prev[i - bpp] : 0;
       switch (type) {
-        case 1: row[i] = (row[i] + a) & 0xff; break;
-        case 2: row[i] = (row[i] + b) & 0xff; break;
-        case 3: row[i] = (row[i] + ((a + b) >> 1)) & 0xff; break;
+        case 1:
+          row[i] = (row[i] + a) & 0xff;
+          break;
+        case 2:
+          row[i] = (row[i] + b) & 0xff;
+          break;
+        case 3:
+          row[i] = (row[i] + ((a + b) >> 1)) & 0xff;
+          break;
         case 4: {
           const p = a + b - c;
           const pa = Math.abs(p - a);
@@ -840,7 +874,8 @@ function undoPngPredictor(
           row[i] = (row[i] + pred) & 0xff;
           break;
         }
-        default: break;
+        default:
+          break;
       }
     }
     out.set(row, r * rowLen);

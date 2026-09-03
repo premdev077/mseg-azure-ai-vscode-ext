@@ -1,0 +1,102 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# A new push supersedes an in-flight run on the same ref; there is nothing to
+# learn from a result for code that has already been replaced.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      # `ci`, not `install`: the lockfile is the input, and a build that
+      # silently resolves a different tree is not the build that was reviewed.
+      - name: Install
+        run: npm ci
+
+      # Ordered cheapest-first so an obvious break fails in seconds rather
+      # than after the test suite.
+      - name: Typecheck
+        run: npm run check-types
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Format
+        run: npm run format:check
+
+      - name: Dependency boundaries
+        run: npm run depcruise
+
+      - name: Dead code
+        run: npm run knip
+
+      - name: Extension host tests
+        run: npm test
+
+      # Includes the axe assertions, so an accessibility regression fails here
+      # rather than reaching someone using a screen reader.
+      - name: Webview tests
+        run: npm run test:webview -- --coverage
+
+      - name: Production build
+        run: npm run package
+
+      - name: Bundle budget
+        run: npm run size
+
+      - name: Upload build output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-output
+          path: |
+            dist/extension.js
+            media/webview/
+          retention-days: 7
+          if-no-files-found: error
+
+  package:
+    name: Package VSIX
+    runs-on: ubuntu-latest
+    needs: verify
+    # Only worth building an installable artifact for something that could ship.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+      - run: npm run vsix
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vsix
+          path: '*.vsix'
+          retention-days: 30
+          if-no-files-found: error

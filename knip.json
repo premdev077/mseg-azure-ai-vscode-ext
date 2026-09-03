@@ -1,0 +1,21 @@
+{
+  "$schema": "https://unpkg.com/knip@5/schema.json",
+  "entry": [
+    "src/extension.ts",
+    "src/test/*.test.ts",
+    "webview/src/main.tsx",
+    "webview/src/**/*.test.{ts,tsx}"
+  ],
+  "project": ["src/**/*.ts", "webview/src/**/*.{ts,tsx}"],
+  "ignoreDependencies": [
+    "@size-limit/file",
+    "@vitest/coverage-v8",
+    "dependency-cruiser",
+    "husky",
+    "lint-staged",
+    "tailwindcss"
+  ],
+  "ignoreBinaries": ["where"],
+  "ignore": ["src/prompt/systemPrompt.ts"],
+  "ignoreExportsUsedInFile": true
+}

@@ -1,10 +1,5 @@
 import * as vscode from 'vscode';
-import {
-  ChatMessage,
-  ToolCall,
-  ToolSpec,
-  streamChatCompletion
-} from './azureClient';
+import { ChatMessage, ToolCall, ToolSpec, streamChatCompletion } from './azureClient';
 import { getApiKey, getSettings, isConfigured } from './config';
 
 export const VENDOR = 'azure-ai-chat';
@@ -22,7 +17,6 @@ interface IncomingMessage {
 }
 
 /** Stable roles. There is no System role in the stable LM API. */
-const ROLE_USER = 1;
 const ROLE_ASSISTANT = 2;
 const ROLE_SYSTEM = 3; // proposed-only; handled if it ever arrives
 
@@ -115,7 +109,7 @@ export class AzureLanguageModelProvider {
         tools,
         {
           onText: (delta) => {
-            progress.report(new (vscode as any).LanguageModelTextPart(delta));
+            progress.report(new lmRuntime.LanguageModelTextPart(delta));
           }
         },
         controller.signal,
@@ -146,8 +140,7 @@ export class AzureLanguageModelProvider {
     text: string | IncomingMessage,
     _token: vscode.CancellationToken
   ): Promise<number> {
-    const raw =
-      typeof text === 'string' ? text : partsToText(text.content ?? []);
+    const raw = typeof text === 'string' ? text : partsToText(text.content ?? []);
     return Math.ceil(raw.length / 3.7);
   }
 
@@ -167,43 +160,80 @@ export class AzureLanguageModelProvider {
 }
 
 // ---------------------------------------------------------------------------
+/**
+ * The slice of VS Code's Language Model API this file constructs.
+ *
+ * These classes are not in `@types/vscode` across the whole version range the
+ * extension supports — they were added, and renamed, between releases. So the
+ * runtime shape is declared once here and reached through a single cast, which
+ * keeps the untyped access to one line instead of scattering it through the
+ * conversion code.
+ */
+interface LanguageModelRuntime {
+  LanguageModelTextPart: new (value: string) => unknown;
+  LanguageModelToolCallPart: new (
+    callId: string,
+    name: string,
+    input: unknown
+  ) => unknown;
+  LanguageModelToolResult: new (parts: unknown[]) => unknown;
+  MarkdownString?: new (value: string) => unknown;
+  lm?: {
+    registerTool?: (name: string, tool: unknown) => vscode.Disposable;
+    registerLanguageModelChatProvider?: (
+      vendor: string,
+      provider: unknown
+    ) => vscode.Disposable;
+  };
+}
+
+// why: the classes above are absent from @types/vscode on older supported
+// releases, so there is no typed route to them. One cast, one place.
+const lmRuntime = vscode as unknown as LanguageModelRuntime;
+
 // Conversion between VS Code's part model and Azure's chat-completions shape.
 // Parts are identified structurally rather than with instanceof, so the code
 // survives the class renames between VS Code releases.
 // ---------------------------------------------------------------------------
 
-function isTextPart(p: any): p is { value: string } {
-  return p && typeof p.value === 'string' && p.callId === undefined;
+function isTextPart(p: unknown): p is { value: string } {
+  if (typeof p !== 'object' || p === null) {
+    return false;
+  }
+  const part = p as { value?: unknown; callId?: unknown };
+  return typeof part.value === 'string' && part.callId === undefined;
 }
 
 function isToolCallPart(
-  p: any
+  p: unknown
 ): p is { callId: string; name: string; input: unknown } {
-  return p && typeof p.callId === 'string' && typeof p.name === 'string';
+  if (typeof p !== 'object' || p === null) {
+    return false;
+  }
+  const part = p as { callId?: unknown; name?: unknown };
+  return typeof part.callId === 'string' && typeof part.name === 'string';
 }
 
-function isToolResultPart(
-  p: any
-): p is { callId: string; content: unknown[] } {
+function isToolResultPart(p: unknown): p is { callId: string; content: unknown[] } {
+  if (typeof p !== 'object' || p === null) {
+    return false;
+  }
+  const part = p as { callId?: unknown; name?: unknown; content?: unknown };
   return (
-    p &&
-    typeof p.callId === 'string' &&
-    typeof p.name !== 'string' &&
-    Array.isArray(p.content)
+    typeof part.callId === 'string' &&
+    typeof part.name !== 'string' &&
+    Array.isArray(part.content)
   );
 }
 
 function partsToText(parts: ReadonlyArray<unknown>): string {
   return parts
-    .map((p: any) => {
+    .map((p: unknown) => {
       if (isTextPart(p)) {
         return p.value;
       }
       if (typeof p === 'string') {
         return p;
-      }
-      if (p && typeof p.value === 'string') {
-        return p.value;
       }
       return '';
     })
@@ -219,11 +249,7 @@ function toToolCallPart(call: ToolCall): unknown {
     // so the failure surfaces in the tool rather than silently becoming {}.
     input = { _raw: call.function.arguments };
   }
-  return new (vscode as any).LanguageModelToolCallPart(
-    call.id,
-    call.function.name,
-    input
-  );
+  return new lmRuntime.LanguageModelToolCallPart(call.id, call.function.name, input);
 }
 
 /**
@@ -237,10 +263,12 @@ export function convertMessages(
   const out: ChatMessage[] = [];
 
   for (const msg of messages) {
-    const parts = (msg.content ?? []) as any[];
+    const parts: readonly unknown[] = msg.content ?? [];
     const toolResults = parts.filter(isToolResultPart);
     const toolCalls = parts.filter(isToolCallPart);
-    const text = partsToText(parts.filter((p) => !isToolResultPart(p) && !isToolCallPart(p)));
+    const text = partsToText(
+      parts.filter((p) => !isToolResultPart(p) && !isToolCallPart(p))
+    );
 
     // Tool results must precede the message that follows them.
     for (const r of toolResults) {
@@ -256,19 +284,15 @@ export function convertMessages(
         out.push({
           role: 'assistant',
           content: text || null,
-          tool_calls: toolCalls.map(
-            (c): ToolCall => ({
-              id: c.callId,
-              type: 'function',
-              function: {
-                name: c.name,
-                arguments:
-                  typeof c.input === 'string'
-                    ? c.input
-                    : JSON.stringify(c.input ?? {})
-              }
-            })
-          )
+          tool_calls: toolCalls.map((c): ToolCall => ({
+            id: c.callId,
+            type: 'function',
+            function: {
+              name: c.name,
+              arguments:
+                typeof c.input === 'string' ? c.input : JSON.stringify(c.input ?? {})
+            }
+          }))
         });
       } else if (text) {
         out.push({ role: 'assistant', content: text });
@@ -317,8 +341,20 @@ export function convertTools(tools: ReadonlyArray<unknown> | undefined): ToolSpe
     return [];
   }
   const specs: ToolSpec[] = [];
-  for (const t of tools as any[]) {
-    if (!t || typeof t.name !== 'string') {
+  for (const raw of tools) {
+    if (typeof raw !== 'object' || raw === null) {
+      continue;
+    }
+    // The schema field was renamed across releases, so all three spellings
+    // are read rather than assuming the one this @types version knows.
+    const t = raw as {
+      name?: unknown;
+      description?: unknown;
+      inputSchema?: unknown;
+      parametersSchema?: unknown;
+      parameters?: unknown;
+    };
+    if (typeof t.name !== 'string') {
       continue;
     }
     const schema = t.inputSchema ?? t.parametersSchema ?? t.parameters;
@@ -328,8 +364,8 @@ export function convertTools(tools: ReadonlyArray<unknown> | undefined): ToolSpe
         name: t.name,
         description: String(t.description ?? ''),
         parameters:
-          schema && typeof schema === 'object'
-            ? schema
+          typeof schema === 'object' && schema !== null
+            ? (schema as Record<string, unknown>)
             : { type: 'object', properties: {} }
       }
     });
@@ -352,7 +388,7 @@ function safeHost(endpoint: string): string {
 export function registerLanguageModelProvider(
   ctx: vscode.ExtensionContext
 ): vscode.Disposable | undefined {
-  const lm = (vscode as any).lm;
+  const lm = lmRuntime.lm;
   if (!lm || typeof lm.registerLanguageModelChatProvider !== 'function') {
     return undefined;
   }
@@ -367,5 +403,5 @@ export function registerLanguageModelProvider(
   }
 }
 
-export { ROLE_USER, ROLE_ASSISTANT, ROLE_SYSTEM };
+export { ROLE_ASSISTANT, ROLE_SYSTEM };
 export type { IncomingMessage };

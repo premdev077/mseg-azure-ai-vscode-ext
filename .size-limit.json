@@ -1,0 +1,20 @@
+[
+  {
+    "name": "webview bundle (JS)",
+    "path": "media/webview/app.js",
+    "limit": "250 kB",
+    "gzip": true
+  },
+  {
+    "name": "webview bundle (CSS)",
+    "path": "media/webview/app.css",
+    "limit": "30 kB",
+    "gzip": true
+  },
+  {
+    "name": "extension host bundle",
+    "path": "dist/extension.js",
+    "limit": "400 kB",
+    "gzip": true
+  }
+]

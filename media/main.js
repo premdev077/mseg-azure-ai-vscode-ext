@@ -2,6 +2,28 @@
 (function () {
   const vscode = acquireVsCodeApi();
 
+  // How far this view has caught up. Persisted through setState because a
+  // reloaded webview loses its DOM while the task keeps running in the
+  // extension host — on the next 'ready' this is what lets it ask for the
+  // gap instead of restarting anything.
+  let lastSequence = 0;
+  try {
+    const saved = vscode.getState();
+    if (saved && typeof saved.lastSequence === 'number') lastSequence = saved.lastSequence;
+  } catch (e) {
+    /* no persisted state; start from zero */
+  }
+
+  function rememberSequence(n) {
+    if (typeof n !== 'number' || n <= lastSequence) return;
+    lastSequence = n;
+    try {
+      vscode.setState({ lastSequence: lastSequence });
+    } catch (e) {
+      /* state is a convenience, never a requirement */
+    }
+  }
+
   const messagesEl = document.getElementById('messages');
   const emptyEl = document.getElementById('empty');
   const inputEl = /** @type {HTMLTextAreaElement} */ (document.getElementById('input'));
@@ -11,6 +33,7 @@
   const bannerEl = document.getElementById('banner');
   const attachBtn = document.getElementById('attach');
   const attachmentsEl = document.getElementById('attachments');
+  const modeEl = /** @type {HTMLSelectElement} */ (document.getElementById('mode'));
   const modelEl = /** @type {HTMLSelectElement} */ (document.getElementById('model'));
   const effortEl = /** @type {HTMLSelectElement} */ (document.getElementById('effort'));
   const noticesEl = document.getElementById('notices');
@@ -636,6 +659,20 @@
     modelEl.value = models.includes(previous) ? previous : models[0];
   }
 
+  /** Modes come from the extension so the labels never drift from MODE_PROFILES. */
+  function populateModes(modes, fallback) {
+    const previous = modeEl.dataset.touched ? modeEl.value : '';
+    modeEl.textContent = '';
+    modes.forEach(item => {
+      const opt = el('option', null, 'Mode: ' + item.label);
+      opt.value = item.mode;
+      opt.title = item.description;
+      modeEl.appendChild(opt);
+    });
+    const wanted = previous || fallback;
+    if (wanted && modes.some(item => item.mode === wanted)) modeEl.value = wanted;
+  }
+
   function showBanner(payload) {
     bannerEl.textContent = '';
     if (payload.configured) {
@@ -672,6 +709,7 @@
       text: text || 'Please review the attached file(s).',
       attachContext: attachEl.checked,
       model: modelEl.value,
+      mode: modeEl.value,
       reasoningEffort: effortEl.value
     });
   }
@@ -683,6 +721,7 @@
 
 
   effortEl.addEventListener('change', () => { effortEl.dataset.touched = '1'; });
+  modeEl.addEventListener('change', () => { modeEl.dataset.touched = '1'; });
 
   inputEl.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -693,10 +732,12 @@
 
   window.addEventListener('message', (event) => {
     const m = event.data;
+    rememberSequence(m.sequence);
     switch (m.type) {
       case 'status':
         showBanner(m);
         populateModels(m.models || []);
+        populateModes(m.modes || [], m.defaultMode);
         if (m.defaultEffort && !effortEl.dataset.touched) effortEl.value = m.defaultEffort;
         break;
       case 'userMessage':
@@ -803,6 +844,9 @@
         setBusy(false);
         break;
       case 'cleared':
+        // A new conversation is a new task: nothing to catch up on.
+        lastSequence = 0;
+        try { vscode.setState({ lastSequence: 0 }); } catch (e) { /* ignore */ }
         historyPanel.classList.add('hidden');
         noticesEl.textContent = '';
         renderAttachments([]);
@@ -822,5 +866,5 @@
   });
 
   setBusy(false);
-  vscode.postMessage({ type: 'ready' });
+  vscode.postMessage({ type: 'ready', lastSequence: lastSequence });
 })();

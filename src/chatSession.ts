@@ -1,17 +1,11 @@
 import * as vscode from 'vscode';
-import {
-  ChatMessage,
-  ContentPart,
-  ReasoningEffort,
-  streamChatCompletion,
-  ToolCall
-} from './azureClient';
+import { ChatMessage, ContentPart, ReasoningEffort, ToolCall } from './azureClient';
+import { AIModelProvider } from './ai/provider';
+import { AgentMode, modeProfile } from './agent/mode';
+import { AgentState, stateForTool } from './agent/state';
+import { invalidRoleAssignments, resolveRoleModel } from './agent/roles';
 import { Attachment, attachmentsToContentParts } from './attachments';
-import {
-  ConversationStore,
-  StoredConversation,
-  deriveTitle
-} from './conversations';
+import { ConversationStore, StoredConversation, deriveTitle } from './conversations';
 import { getApiKey, getSettings, promptForApiKey, Settings } from './config';
 import { EditReviewManager } from './editReview';
 import { CommandApprovalManager } from './commandApproval';
@@ -42,6 +36,14 @@ export interface SessionEvents {
   onReasoning: (delta: string) => void;
   onNotice: (message: string) => void;
   onConversationSaved: () => void;
+  /** The agent's state changed. Drives the progress UI. */
+  onState: (state: AgentState) => void;
+  /** Token usage for one model round, when the deployment reports it. */
+  onUsage?: (usage: {
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    completion_tokens_details?: { reasoning_tokens?: number };
+  }) => void;
   onCommandProposed: (info: {
     id: string;
     command: string;
@@ -64,6 +66,8 @@ export interface SendOptions {
   reasoningEffort?: ReasoningEffort;
   attachments?: Attachment[];
   attachEditorContext?: boolean;
+  /** Operating mode for this turn. Falls back to the configured default. */
+  mode?: AgentMode;
 }
 
 /** Roughly 4 characters per token; used only to decide when to trim history. */
@@ -79,6 +83,16 @@ export class ChatSession {
   private conversationId = newConversationId();
   private createdAt = new Date().toISOString();
   private lastModel: string | undefined;
+  private state: AgentState = 'idle';
+  /** Misrouted roles are reported once, not on every turn. */
+  private warnedAboutRoles = false;
+
+  /**
+   * Identifies this session as an agent to the approval gates, so cancelling
+   * it rejects only the edits and commands it raised. Today there is one
+   * session, but the gates are shared and the Coordinator will run several.
+   */
+  private readonly agentId: string;
 
   constructor(
     private readonly ctx: vscode.ExtensionContext,
@@ -86,8 +100,30 @@ export class ChatSession {
     private readonly commands: CommandApprovalManager,
     private readonly recorder: SessionRecorder,
     private readonly store: ConversationStore,
-    private readonly events: SessionEvents
-  ) {}
+    private readonly provider: AIModelProvider,
+    private readonly events: SessionEvents,
+    agentId?: string
+  ) {
+    this.agentId = agentId ?? `chat-${Math.random().toString(36).slice(2, 10)}`;
+  }
+
+  /** Who this session is, for event correlation and approval ownership. */
+  get ownerId(): string {
+    return this.agentId;
+  }
+
+  get currentState(): AgentState {
+    return this.state;
+  }
+
+  /** Single point of truth for the state, so the UI never misses a change. */
+  private setState(state: AgentState): void {
+    if (this.state === state) {
+      return;
+    }
+    this.state = state;
+    this.events.onState(state);
+  }
 
   get id(): string {
     return this.conversationId;
@@ -109,6 +145,7 @@ export class ChatSession {
     if (conversation.title) {
       this.recorder.setTask(conversation.title);
     }
+    this.setState('idle');
   }
 
   private async persist(): Promise<void> {
@@ -120,8 +157,7 @@ export class ChatSession {
       title: deriveTitle(this.messages),
       createdAt: this.createdAt,
       updatedAt: new Date().toISOString(),
-      workspace:
-        vscode.workspace.workspaceFolders?.[0]?.name ?? '(no folder)',
+      workspace: vscode.workspace.workspaceFolders?.[0]?.name ?? '(no folder)',
       model: this.lastModel,
       messages: this.messages
     });
@@ -139,6 +175,8 @@ export class ChatSession {
     this.conversationId = newConversationId();
     this.createdAt = new Date().toISOString();
     this.recorder.reset();
+    this.warnedAboutRoles = false;
+    this.setState('idle');
   }
 
   /**
@@ -150,8 +188,12 @@ export class ChatSession {
     this.turnId += 1;
     this.controller?.abort();
     this.cts?.cancel();
-    this.edits.rejectAll();
-    this.commands.rejectAll();
+    // Scoped to this agent: another agent's pending review must survive.
+    this.edits.rejectAll(this.agentId);
+    this.commands.rejectAll(this.agentId);
+    if (this.state !== 'idle') {
+      this.setState('cancelled');
+    }
   }
 
   async send(userText: string, opts: SendOptions = {}): Promise<void> {
@@ -186,13 +228,17 @@ export class ChatSession {
     const cts = new vscode.CancellationTokenSource();
     this.controller = controller;
     this.cts = cts;
+    const mode: AgentMode = opts.mode ?? settings.defaultMode;
 
     try {
+      this.setState('analyzing');
+      this.reportRoleProblems(settings);
+
       // Keep the system prompt current without ever clobbering a non-system
       // message at index 0 (which cancellation races could leave there).
       const system: ChatMessage = {
         role: 'system',
-        content: withUserPrompt(buildSystemPrompt(settings), settings)
+        content: withUserPrompt(buildSystemPrompt(settings, mode), settings)
       };
       if (this.messages[0]?.role === 'system') {
         this.messages[0] = system;
@@ -214,7 +260,7 @@ export class ChatSession {
       }
 
       this.recorder.setTask(userText);
-      this.lastModel = opts.model ?? settings.deployment;
+      this.lastModel = opts.model ?? this.roleModel(settings);
 
       const attachments = opts.attachments ?? [];
       if (attachments.length > 0) {
@@ -230,9 +276,10 @@ export class ChatSession {
         this.messages.push({ role: 'user', content: `${leading}${userText}` });
       }
 
-      await this.runAgentLoop(settings, apiKey, myTurn, controller, cts, opts);
+      await this.runAgentLoop(settings, mode, myTurn, controller, cts, opts);
     } catch (err) {
       if ((err as Error)?.name !== 'AbortError' && myTurn === this.turnId) {
+        this.setState('failed');
         this.events.onError((err as Error).message);
       }
     } finally {
@@ -252,33 +299,69 @@ export class ChatSession {
 
   private async runAgentLoop(
     settings: Settings,
-    apiKey: string,
+    mode: AgentMode,
     myTurn: number,
     controller: AbortController,
     cts: vscode.CancellationTokenSource,
     opts: SendOptions
   ): Promise<void> {
+    const profile = modeProfile(mode);
     let iterations = 0;
     let totalCompletionTokens = 0;
     let totalReasoningTokens = 0;
 
-    while (iterations < Math.max(1, settings.maxToolIterations)) {
+    // Fast mode gets read-only tools; the other modes get everything.
+    const allowed = profile.allowedTools;
+    const tools = allowed
+      ? TOOL_SPECS.filter((t) => allowed.includes(t.function.name))
+      : TOOL_SPECS;
+
+    // A name in the allowlist that no longer matches a spec would silently
+    // remove a tool from the mode, which is very hard to notice from the
+    // outside. Say so rather than quietly degrading.
+    if (allowed && tools.length !== allowed.length) {
+      const present = new Set(tools.map((t) => t.function.name));
+      const missing = allowed.filter((name) => !present.has(name));
+      this.events.onNotice(
+        `${profile.label} mode expected the tool(s) ${missing.join(', ')}, which are not registered. This is a bug in the extension, not in your request.`
+      );
+    }
+
+    // The mode's cap and the user's setting both apply — the lower wins, so
+    // raising maxToolIterations never makes Fast mode grind.
+    const maxRounds = Math.max(
+      1,
+      Math.min(
+        settings.maxToolIterations,
+        profile.toolRoundCap ?? settings.maxToolIterations
+      )
+    );
+
+    // The composer's Thinking selector wins; the mode only supplies a default.
+    const reasoningEffort = opts.reasoningEffort ?? profile.defaultReasoningEffort;
+
+    // Precedence: what the composer picked, then the role assignment, then the
+    // first configured deployment.
+    const model = opts.model ?? this.roleModel(settings);
+
+    while (iterations < maxRounds) {
       iterations += 1;
       this.trimHistory();
       this.events.onAssistantStart();
 
-      const result = await streamChatCompletion(
-        settings,
-        apiKey,
-        this.messages,
-        TOOL_SPECS,
+      const result = await this.provider.stream(
+        {
+          messages: this.messages,
+          tools,
+          model,
+          reasoningEffort
+        },
         {
           onText: (d) => this.events.onText(d),
           onReasoning: (d) => this.events.onReasoning(d),
           onNotice: (m) => this.events.onNotice(m)
         },
-        controller.signal,
-        { model: opts.model, reasoningEffort: opts.reasoningEffort }
+        controller.signal
       );
 
       // The turn was cancelled (or replaced) while we were streaming: drop
@@ -290,6 +373,9 @@ export class ChatSession {
       totalCompletionTokens += result.usage?.completion_tokens ?? 0;
       totalReasoningTokens +=
         result.usage?.completion_tokens_details?.reasoning_tokens ?? 0;
+      if (result.usage) {
+        this.events.onUsage?.(result.usage);
+      }
 
       const assistantMsg: ChatMessage = {
         role: 'assistant',
@@ -301,6 +387,7 @@ export class ChatSession {
       this.messages.push(assistantMsg);
 
       if (result.toolCalls.length === 0) {
+        this.setState('completed');
         this.events.onDone({
           usageNote: totalCompletionTokens
             ? `${totalCompletionTokens} completion tokens` +
@@ -321,9 +408,41 @@ export class ChatSession {
       }
     }
 
+    this.setState('failed');
     this.events.onError(
-      `Stopped after ${settings.maxToolIterations} tool rounds. Raise "azureAiChat.maxToolIterations" if this task legitimately needs more steps.`
+      profile.toolRoundCap !== undefined && maxRounds === profile.toolRoundCap
+        ? `Stopped after ${maxRounds} tool rounds, which is ${profile.label} mode's limit. Re-send this in Thinking or Agent mode if it genuinely needs more steps.`
+        : `Stopped after ${maxRounds} tool rounds. Raise "azureAiChat.maxToolIterations" if this task legitimately needs more steps.`
     );
+  }
+
+  /** The deployment assigned to the sidebar chat, or the default. */
+  private roleModel(settings: Settings): string {
+    return resolveRoleModel(
+      'chat',
+      settings.modelRoles,
+      settings.models,
+      settings.deployment
+    ).model;
+  }
+
+  /**
+   * Tells the user once when a role names a deployment that is not configured.
+   * Silently falling back would mean their routing quietly does nothing.
+   */
+  private reportRoleProblems(settings: Settings): void {
+    if (this.warnedAboutRoles) {
+      return;
+    }
+    const problems = invalidRoleAssignments(
+      settings.modelRoles,
+      settings.models,
+      settings.deployment
+    );
+    if (problems.length > 0) {
+      this.warnedAboutRoles = true;
+      this.events.onNotice(problems.join(' '));
+    }
   }
 
   /**
@@ -338,10 +457,12 @@ export class ChatSession {
     cts: vscode.CancellationTokenSource
   ): Promise<boolean> {
     for (const call of toolCalls) {
+      this.setState(stateForTool(call.function.name));
       this.events.onToolStart(call.function.name, call.function.arguments);
 
       const output = await runTool(call.function.name, call.function.arguments, {
         settings,
+        owner: this.agentId,
         edits: this.edits,
         commands: this.commands,
         recorder: this.recorder,
@@ -436,7 +557,6 @@ export class ChatSession {
     }
   }
 }
-
 
 function newConversationId(): string {
   return `${new Date().toISOString().replace(/[:.]/g, '-')}-${Math.random()

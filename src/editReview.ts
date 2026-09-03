@@ -4,6 +4,11 @@ export const PROPOSED_SCHEME = 'azure-ai-chat-proposed';
 
 export interface PendingEdit {
   id: string;
+  /**
+   * Which agent proposed this. Cancelling one agent must not reject another
+   * agent's pending edits, which is exactly what an unscoped rejectAll did.
+   */
+  owner: string;
   uri: vscode.Uri;
   relPath: string;
   originalText: string;
@@ -90,9 +95,7 @@ export class EditReviewManager implements vscode.TextDocumentContentProvider {
     }
     try {
       if (edit.isNewFile) {
-        await vscode.workspace.fs.createDirectory(
-          vscode.Uri.joinPath(edit.uri, '..')
-        );
+        await vscode.workspace.fs.createDirectory(vscode.Uri.joinPath(edit.uri, '..'));
       }
       await vscode.workspace.fs.writeFile(
         edit.uri,
@@ -122,11 +125,24 @@ export class EditReviewManager implements vscode.TextDocumentContentProvider {
     return true;
   }
 
-  /** Rejects everything still awaiting a decision (used when a turn is cancelled). */
-  rejectAll(): void {
-    for (const id of [...this.pending.keys()]) {
-      this.settle(id, 'rejected');
+  /**
+   * Rejects pending edits. With an owner, only that agent's — which is what a
+   * cancelled or finished agent must do while others are still working.
+   * Without one, everything, for extension shutdown.
+   */
+  rejectAll(owner?: string): void {
+    for (const [id, edit] of [...this.pending.entries()]) {
+      if (owner === undefined || edit.owner === owner) {
+        this.settle(id, 'rejected');
+      }
     }
+  }
+
+  /** Ids still awaiting a decision, optionally for one agent. */
+  pendingIds(owner?: string): string[] {
+    return [...this.pending.values()]
+      .filter((e) => owner === undefined || e.owner === owner)
+      .map((e) => e.id);
   }
 
   dispose(): void {

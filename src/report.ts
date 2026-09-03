@@ -1,10 +1,5 @@
 import * as vscode from 'vscode';
-import {
-  EntryKind,
-  SessionRecord,
-  SessionRecorder,
-  renderMarkdown
-} from './history';
+import { SessionRecord, SessionRecorder, renderMarkdown } from './history';
 
 /**
  * The session report: what was asked, what changed, what actually ran and what
@@ -25,7 +20,10 @@ export class ReportPanel {
 
     this.disposables.push(
       this.recorder.onDidChange(() => this.refresh()),
-      this.panel.webview.onDidReceiveMessage(async (msg: any) => {
+      this.panel.webview.onDidReceiveMessage(async (raw: unknown) => {
+        // Same boundary as the chat panel: narrow before acting.
+        const msg =
+          typeof raw === 'object' && raw !== null ? (raw as { type?: unknown }) : {};
         if (msg?.type === 'ready') {
           this.refresh();
         } else if (msg?.type === 'export') {
@@ -236,15 +234,3 @@ export async function exportReport(record: SessionRecord): Promise<void> {
     await vscode.window.showTextDocument(target);
   }
 }
-
-export const REPORT_KINDS: EntryKind[] = [
-  'requirement',
-  'decision',
-  'file-changed',
-  'bug',
-  'fix',
-  'todo',
-  'note',
-  'command',
-  'validation'
-];

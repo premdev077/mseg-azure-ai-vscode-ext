@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import { getSettings } from './config';
 import { classifyCommand } from './shell/policy';
-import { findBash, formatResult, runCommand, toBashPath } from './shell/exec';
+import { findBash, formatResult, runCommand } from './shell/exec';
 import { SessionRecorder, EntryKind } from './history';
 
 /**
@@ -40,14 +40,31 @@ function resolveCwd(rel?: string): string {
   return abs;
 }
 
+/**
+ * The runtime classes this file constructs.
+ *
+ * Absent from `@types/vscode` on older supported releases, so the shape is
+ * declared once and reached through a single cast rather than casting at
+ * each use.
+ */
+interface LanguageModelRuntime {
+  LanguageModelTextPart: new (value: string) => unknown;
+  LanguageModelToolResult: new (parts: unknown[]) => unknown;
+  MarkdownString?: new (value: string) => unknown;
+  lm?: { registerTool?: (name: string, tool: unknown) => vscode.Disposable };
+}
+
+// why: no typed route to these classes on the older releases this supports.
+const lmRuntime = vscode as unknown as LanguageModelRuntime;
+
 function textResult(text: string): unknown {
-  const V = vscode as any;
-  return new V.LanguageModelToolResult([new V.LanguageModelTextPart(text)]);
+  return new lmRuntime.LanguageModelToolResult([
+    new lmRuntime.LanguageModelTextPart(text)
+  ]);
 }
 
 function markdown(text: string): unknown {
-  const V = vscode as any;
-  return V.MarkdownString ? new V.MarkdownString(text) : text;
+  return lmRuntime.MarkdownString ? new lmRuntime.MarkdownString(text) : text;
 }
 
 async function execute(
@@ -245,13 +262,7 @@ class RunValidationTool {
     const report: string[] = [];
     for (const check of selected) {
       if (token.isCancellationRequested) break;
-      const output = await execute(
-        check.command,
-        root,
-        300_000,
-        token,
-        this.recorder
-      );
+      const output = await execute(check.command, root, 300_000, token, this.recorder);
       const passed = /exit 0\b/.test(output.split('\n')[1] ?? '');
       this.recorder.add(
         'validation',
@@ -281,11 +292,9 @@ async function discoverChecks(): Promise<Check[]> {
   const root = folder.uri;
   const checks: Check[] = [];
 
-  const readJson = async (name: string): Promise<any | undefined> => {
+  const readJson = async (name: string): Promise<unknown> => {
     try {
-      const bytes = await vscode.workspace.fs.readFile(
-        vscode.Uri.joinPath(root, name)
-      );
+      const bytes = await vscode.workspace.fs.readFile(vscode.Uri.joinPath(root, name));
       return JSON.parse(new TextDecoder().decode(bytes));
     } catch {
       return undefined;
@@ -302,8 +311,12 @@ async function discoverChecks(): Promise<Check[]> {
   };
 
   const pkg = await readJson('package.json');
-  if (pkg?.scripts && typeof pkg.scripts === 'object') {
-    const scripts = pkg.scripts as Record<string, string>;
+  const rawScripts =
+    typeof pkg === 'object' && pkg !== null
+      ? (pkg as { scripts?: unknown }).scripts
+      : undefined;
+  if (typeof rawScripts === 'object' && rawScripts !== null) {
+    const scripts = rawScripts as Record<string, unknown>;
     const pick = (kind: Check['kind'], candidates: string[]) => {
       const found = candidates.find((c) => typeof scripts[c] === 'string');
       if (found) checks.push({ kind, command: `npm run ${found}` });
@@ -347,7 +360,15 @@ class RecordSessionTool {
   async invoke(options: { input: RecordInput }): Promise<unknown> {
     const kind = String(options.input?.kind ?? 'note');
     const text = String(options.input?.text ?? '').trim();
-    const allowed = ['requirement', 'decision', 'file-changed', 'bug', 'fix', 'todo', 'note'];
+    const allowed = [
+      'requirement',
+      'decision',
+      'file-changed',
+      'bug',
+      'fix',
+      'todo',
+      'note'
+    ];
     if (!text) {
       return textResult('Error: text is required.');
     }
@@ -368,7 +389,7 @@ class RecordSessionTool {
 export function registerLanguageModelTools(
   recorder: SessionRecorder
 ): vscode.Disposable[] {
-  const lm = (vscode as any).lm;
+  const lm = lmRuntime.lm;
   if (!lm || typeof lm.registerTool !== 'function') {
     return [];
   }
@@ -391,5 +412,3 @@ export function registerLanguageModelTools(
   }
   return disposables;
 }
-
-export { toBashPath };

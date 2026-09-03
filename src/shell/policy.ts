@@ -22,41 +22,155 @@ export interface Classification {
 
 /** Commands that only inspect state. */
 const READ_ONLY = new Set([
-  'ls', 'dir', 'pwd', 'cd', 'cat', 'head', 'tail', 'wc', 'file', 'stat',
-  'which', 'where', 'echo', 'printf', 'date', 'whoami', 'hostname', 'uname',
-  'grep', 'egrep', 'fgrep', 'rg', 'ag', 'find', 'fd', 'tree', 'du', 'df',
-  'basename', 'dirname', 'realpath', 'readlink', 'sort', 'uniq', 'cut',
-  'column', 'diff', 'cmp', 'md5sum', 'sha1sum', 'sha256sum', 'env', 'type',
-  'command', 'test', 'true', 'false', 'seq', 'nl', 'jq', 'yq', 'xxd', 'od'
+  'ls',
+  'dir',
+  'pwd',
+  'cd',
+  'cat',
+  'head',
+  'tail',
+  'wc',
+  'file',
+  'stat',
+  'which',
+  'where',
+  'echo',
+  'printf',
+  'date',
+  'whoami',
+  'hostname',
+  'uname',
+  'grep',
+  'egrep',
+  'fgrep',
+  'rg',
+  'ag',
+  'find',
+  'fd',
+  'tree',
+  'du',
+  'df',
+  'basename',
+  'dirname',
+  'realpath',
+  'readlink',
+  'sort',
+  'uniq',
+  'cut',
+  'column',
+  'diff',
+  'cmp',
+  'md5sum',
+  'sha1sum',
+  'sha256sum',
+  'env',
+  'type',
+  'command',
+  'test',
+  'true',
+  'false',
+  'seq',
+  'nl',
+  'jq',
+  'yq',
+  'xxd',
+  'od'
 ]);
 
 /** git subcommands that do not change the repository. */
 const GIT_READ_ONLY = new Set([
-  'status', 'diff', 'log', 'show', 'branch', 'remote', 'rev-parse', 'ls-files',
-  'ls-tree', 'blame', 'describe', 'shortlog', 'reflog', 'whatchanged',
-  'cat-file', 'symbolic-ref', 'name-rev', 'count-objects', 'var', 'help',
-  'grep', 'difftool', 'range-diff', 'verify-commit'
+  'status',
+  'diff',
+  'log',
+  'show',
+  'branch',
+  'remote',
+  'rev-parse',
+  'ls-files',
+  'ls-tree',
+  'blame',
+  'describe',
+  'shortlog',
+  'reflog',
+  'whatchanged',
+  'cat-file',
+  'symbolic-ref',
+  'name-rev',
+  'count-objects',
+  'var',
+  'help',
+  'grep',
+  'difftool',
+  'range-diff',
+  'verify-commit'
 ]);
 
 /** Runners that execute the project's own checks. */
 const VALIDATION = new Set([
-  'pytest', 'jest', 'vitest', 'mocha', 'tsc', 'eslint', 'prettier', 'ruff',
-  'mypy', 'flake8', 'black', 'pylint', 'phpunit', 'rspec', 'gradle', 'mvn'
+  'pytest',
+  'jest',
+  'vitest',
+  'mocha',
+  'tsc',
+  'eslint',
+  'prettier',
+  'ruff',
+  'mypy',
+  'flake8',
+  'black',
+  'pylint',
+  'phpunit',
+  'rspec',
+  'gradle',
+  'mvn'
 ]);
 
 /** Package-manager subcommands that only read. */
 const PKG_READ_ONLY = new Set([
-  '-v', '--version', 'ls', 'list', 'view', 'info', 'outdated', 'why',
-  'config', 'root', 'prefix', 'bin', 'show', 'search', 'help', 'ping'
+  '-v',
+  '--version',
+  'ls',
+  'list',
+  'view',
+  'info',
+  'outdated',
+  'why',
+  'config',
+  'root',
+  'prefix',
+  'bin',
+  'show',
+  'search',
+  'help',
+  'ping'
 ]);
 
 /** npm/pnpm/yarn scripts that are validation rather than mutation. */
 const SAFE_SCRIPTS = new Set([
-  'build', 'test', 'lint', 'typecheck', 'type-check', 'check-types', 'check',
-  'compile', 'tsc', 'format:check', 'validate', 'unit', 'e2e', 'coverage'
+  'build',
+  'test',
+  'lint',
+  'typecheck',
+  'type-check',
+  'check-types',
+  'check',
+  'compile',
+  'tsc',
+  'format:check',
+  'validate',
+  'unit',
+  'e2e',
+  'coverage'
 ]);
 
-const VERSION_FLAGS = new Set(['-v', '--version', '-version', 'version', '--help', '-h']);
+const VERSION_FLAGS = new Set([
+  '-v',
+  '--version',
+  '-version',
+  'version',
+  '--help',
+  '-h'
+]);
 
 /**
  * Splits a command line into segments on the shell's control operators, while
@@ -167,7 +281,10 @@ const CATASTROPHIC: Array<{ test: RegExp; reason: string }> = [
   { test: /\b(shutdown|reboot|halt|poweroff)\b/, reason: 'shuts the machine down' },
   { test: /\bchmod\s+-R\s+777\s+\/(\s|$)/, reason: 'opens permissions on /' },
   { test: /\b(format|diskpart)\s+[a-zA-Z]:/i, reason: 'formats a drive' },
-  { test: /\bgit\s+push\b[^|;]*--force\b[^|;]*\b(main|master|develop)\b/, reason: 'force-pushes a protected branch' }
+  {
+    test: /\bgit\s+push\b[^|;]*--force\b[^|;]*\b(main|master|develop)\b/,
+    reason: 'force-pushes a protected branch'
+  }
 ];
 
 function classifySegment(segment: string): Classification {
@@ -213,7 +330,7 @@ function classifySegment(segment: string): Classification {
     if (firstArg === 'test' || firstArg === 'run' || firstArg === 'run-script') {
       const script = (args[1] ?? '').toLowerCase();
       if (firstArg === 'test' || SAFE_SCRIPTS.has(script)) {
-        return { verdict: 'auto', reason: 'runs the project\'s own checks' };
+        return { verdict: 'auto', reason: "runs the project's own checks" };
       }
       return {
         verdict: 'approve',
@@ -229,7 +346,12 @@ function classifySegment(segment: string): Classification {
   }
 
   if (cmd === 'pip' || cmd === 'pip3' || cmd === 'poetry' || cmd === 'uv') {
-    if (firstArg === 'list' || firstArg === 'show' || firstArg === 'freeze' || VERSION_FLAGS.has(firstArg)) {
+    if (
+      firstArg === 'list' ||
+      firstArg === 'show' ||
+      firstArg === 'freeze' ||
+      VERSION_FLAGS.has(firstArg)
+    ) {
       return { verdict: 'auto', reason: `${cmd} ${firstArg} only reads` };
     }
     return {
@@ -255,7 +377,11 @@ function classifySegment(segment: string): Classification {
     const tool = firstArg.replace(/^-+/, '');
     if (VALIDATION.has(tool)) {
       if (args.some((a) => a === '--write' || a === '--fix')) {
-        return { verdict: 'approve', reason: `${tool} would rewrite files`, offendingSegment: segment };
+        return {
+          verdict: 'approve',
+          reason: `${tool} would rewrite files`,
+          offendingSegment: segment
+        };
       }
       return { verdict: 'auto', reason: `npx ${tool} runs a project check` };
     }
@@ -266,11 +392,24 @@ function classifySegment(segment: string): Classification {
     };
   }
 
-  if (cmd === 'node' || cmd === 'python' || cmd === 'python3' || cmd === 'dotnet' || cmd === 'java' || cmd === 'go') {
+  if (
+    cmd === 'node' ||
+    cmd === 'python' ||
+    cmd === 'python3' ||
+    cmd === 'dotnet' ||
+    cmd === 'java' ||
+    cmd === 'go'
+  ) {
     if (VERSION_FLAGS.has(firstArg)) {
       return { verdict: 'auto', reason: `${cmd} version check` };
     }
-    if (cmd === 'go' && (firstArg === 'version' || firstArg === 'vet' || firstArg === 'test' || firstArg === 'list')) {
+    if (
+      cmd === 'go' &&
+      (firstArg === 'version' ||
+        firstArg === 'vet' ||
+        firstArg === 'test' ||
+        firstArg === 'list')
+    ) {
       return { verdict: 'auto', reason: `go ${firstArg} only reads or tests` };
     }
     return {

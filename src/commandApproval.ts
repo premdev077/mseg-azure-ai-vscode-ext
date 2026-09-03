@@ -3,6 +3,8 @@ import { Classification } from './shell/policy';
 
 export interface PendingCommand {
   id: string;
+  /** Which agent asked. Scopes rejectAll so agents cannot cancel each other. */
+  owner: string;
   command: string;
   cwd: string;
   classification: Classification;
@@ -20,8 +22,7 @@ export interface CommandDecision {
  * have different payloads and the edit path is already load-bearing.
  */
 export class CommandApprovalManager {
-  private readonly onDidResolveEmitter =
-    new vscode.EventEmitter<CommandDecision>();
+  private readonly onDidResolveEmitter = new vscode.EventEmitter<CommandDecision>();
   readonly onDidResolve = this.onDidResolveEmitter.event;
 
   private readonly pending = new Map<string, PendingCommand>();
@@ -59,11 +60,24 @@ export class CommandApprovalManager {
     return true;
   }
 
-  /** Rejects everything outstanding — used when a turn is cancelled. */
-  rejectAll(): void {
-    for (const id of [...this.pending.keys()]) {
-      this.settle(id, 'rejected');
+  /**
+   * Rejects outstanding commands. With an owner, only that agent's; without
+   * one, everything. Mirrors EditReviewManager so both gates behave the same
+   * way when an agent is cancelled mid-run.
+   */
+  rejectAll(owner?: string): void {
+    for (const [id, entry] of [...this.pending.entries()]) {
+      if (owner === undefined || entry.owner === owner) {
+        this.settle(id, 'rejected');
+      }
     }
+  }
+
+  /** Ids still awaiting a decision, optionally for one agent. */
+  pendingIds(owner?: string): string[] {
+    return [...this.pending.values()]
+      .filter((c) => owner === undefined || c.owner === owner)
+      .map((c) => c.id);
   }
 
   dispose(): void {
