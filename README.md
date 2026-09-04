@@ -11,15 +11,80 @@ It works in two places:
 
 ## 1. Install
 
+### From a `.vsix`
+
 ```
-code --install-extension azure-ai-chat-1.0.0.vsix
+code --install-extension mseg-azure-ai-vscode-ext-1.0.0.vsix
 ```
 
-Or `Ctrl+Shift+P` → **Extensions: Install from VSIX…**
+Or `Ctrl+Shift+P` → **Extensions: Install from VSIX…** and pick the file.
 
-To build from source: `npm install && npm run package && npm run vsix`. To develop it, open the folder and press `F5`.
+Then reload the window (`Ctrl+Shift+P` → **Developer: Reload Window**) and open the
+**Azure AI Chat** icon in the activity bar.
 
-**Requires VS Code 1.104 or later.** The native Chat view additionally needs **1.122+**, which is the release that made the Chat view work without a GitHub sign-in.
+To remove it: `code --uninstall-extension Premraj.mseg-azure-ai-vscode-ext`.
+
+### Building the `.vsix` yourself
+
+The extension is **two bundles** — the extension host and the webview UI — and both
+must be built before packaging. `npm run vsix` does not build; it packages whatever
+is on disk, so a stale or missing webview build ships a blank panel.
+
+```bash
+npm install          # once
+npm run package      # builds BOTH: esbuild → dist/, vite → media/webview/
+npm run vsix         # writes ./mseg-azure-ai-vscode-ext-<version>.vsix
+```
+
+`npm run vsix` alone is only safe immediately after `npm run package`.
+
+Check what is about to ship before you hand the file to anyone:
+
+```bash
+npx @vscode/vsce ls --no-dependencies
+```
+
+You should see exactly these, and nothing else:
+
+```
+LICENSE
+README.md
+package.json
+dist/extension.js          the extension host, bundled
+media/icon.svg
+media/webview/app.js       the React UI, bundled
+media/webview/app.css
+media/webview/index.html
+```
+
+If `media/webview/*` is missing you skipped `npm run package`; installing that VSIX
+gives an empty sidebar. If anything else appears — `.env`, `.husky/`, source files —
+`.vscodeignore` has drifted and should be fixed before publishing.
+
+### Running from source
+
+```bash
+npm install
+npm run watch          # extension host, rebuilds on change
+npm run watch:webview  # webview, in a second terminal
+```
+
+Then press **F5** to launch an Extension Development Host. After changing webview
+code, reload that window to pick up the new bundle.
+
+To work on the UI without an Azure key at all:
+
+```bash
+npm run preview        # http://localhost:5599/preview.html
+```
+
+That renders the real panel against a seeded multi-agent run. Add
+`?scenario=live` to watch a run stream in event by event, `?scenario=verified`
+for a finished one, or `?scenario=empty` for the first-launch state. The preview
+is developer tooling and is not part of the packaged extension.
+
+**Requires VS Code 1.104 or later.** The native Chat view additionally needs **1.122+**,
+which is the release that made the Chat view work without a GitHub sign-in.
 
 ## 2. Configure
 
@@ -132,6 +197,109 @@ It also contributes five tools that agent mode can use, referenceable with `#azu
 
 ---
 
+## Multi-agent runs
+
+Off by default. A turn runs the way it always has until you opt in:
+
+```json
+"azureAiChat.orchestration": "multi-agent"
+```
+
+| Value | What a turn does |
+|---|---|
+| `single` | The original loop. One agent, one conversation. **Default.** |
+| `coordinated` | The same single agent, but through the Coordinator, so task state, file locks and the token budget apply. |
+| `multi-agent` | The full pipeline below. |
+
+### What a multi-agent turn does
+
+```
+git baseline captured
+        ↓
+five read-only planners, in parallel
+        ↓
+plans aggregated; disagreements surfaced, not silently resolved
+        ↓
+scoped coders — each may edit only its assigned files
+        ↓
+an independent Verification Agent re-inspects the repository
+        ↓
+   passed ──→ COMPLETED        failed ──→ repair, then verify again (max 3)
+```
+
+Two rules this enforces that the single-agent loop cannot:
+
+- **A coding agent cannot declare success.** Only the verifier moves a run to
+  completed, and it re-runs the project's real checks rather than trusting what
+  the coders reported. A skipped check is reported as skipped, never as passed.
+- **Your uncommitted work is protected.** The baseline taken before the run is
+  what lets the verifier tell an agent's edit from yours, and flag any file that
+  changed but no task claimed.
+
+### Give each role its own deployment
+
+Planners are cheap and numerous; the verifier is the last line of defence. Pointing
+them at different deployments is what makes that affordable:
+
+```json
+"azureAiChat.connection": { "model": ["sol", "luna", "terra"] },
+"azureAiChat.modelRoles": {
+  "coordinator": "sol",
+  "planner":     "luna",
+  "coder":       "sol",
+  "verifier":    "terra",
+  "repair":      "sol"
+}
+```
+
+Every name must also appear in `connection.model`. One that does not is reported
+once and ignored rather than failing mid-run. A role left empty uses the first
+deployment in the list.
+
+**Several roles on one deployment share its TPM quota**, and parallel agents will
+throttle each other. If you only have one deployment, lower `concurrency` rather
+than hoping.
+
+### Cost
+
+A multi-agent turn costs several times a single one. Five planners run before any
+code is written, so the ceilings matter:
+
+```json
+"azureAiChat.budget": {
+  "maxTotalTokens": 500000,
+  "maxAgents": 20,
+  "totalTaskTimeoutMs": 900000,
+  "agentTimeoutMs": 300000
+},
+"azureAiChat.concurrency": {
+  "maxConcurrentAgents": 5,
+  "maxPlanningAgents": 5,
+  "maxCodingAgents": 4,
+  "maxRepairAgents": 3
+}
+```
+
+Reaching a limit stops **new** agents starting; work already in flight finishes and
+the run reports that it was cut short. Tokens are the limit that bites first —
+agent mode's prompt alone is roughly 12k tokens, so a handful of wide agents costs
+more than a long run of narrow ones.
+
+### Depth, per message
+
+Separately from orchestration, the composer's **Mode** selector sets how much
+investigation a turn does:
+
+| Mode | Tools | Prompt | For |
+|---|---|---|---|
+| Fast | read-only | ~2k tokens | Explaining code, finding a symbol, a small snippet |
+| Thinking | all | ~5k tokens | A change that deserves inspecting and verifying |
+| Agent | all | ~11k tokens | Finish it, including running checks and fixing failures |
+
+`azureAiChat.mode` sets the default; the composer overrides it per message.
+
+---
+
 ## Settings reference
 
 | Setting | Default | Notes |
@@ -142,6 +310,12 @@ It also contributes five tools that agent mode can use, referenceable with `#azu
 | `maxTokens` | `8000` | Per response |
 | `useMaxCompletionTokens` | `false` | Force the reasoning-model request shape |
 | `maxToolIterations` | `12` | Tool round-trips before the loop stops |
+| `mode` | `agent` | Default depth when the composer selector is untouched: `fast` / `thinking` / `agent` |
+| `modelRoles` | `{}` | Which deployment serves each agent role — see [Multi-agent runs](#multi-agent-runs) |
+| `orchestration` | `single` | `single` / `coordinated` / `multi-agent` |
+| `maxVerificationAttempts` | `3` | Verify → repair → verify rounds before a run is reported failed |
+| `budget` | see below | Token, agent and time ceilings for one run |
+| `concurrency` | see below | How many agents may run at once, globally and per role |
 | `autoApproveEdits` | `false` | Skip the diff review |
 | `includeActiveFile` | `true` | Master switch for the composer toggle |
 | `maxFileBytes` | `200000` | Truncation limit for files and attachments |
@@ -192,36 +366,67 @@ It also contributes five tools that agent mode can use, referenceable with `#azu
 
 **Azure models not in the native Chat picker** — needs VS Code 1.122+. Run *Test Connection* first; the provider only offers models once the endpoint, deployment and key all resolve.
 
+**The sidebar is blank after installing a `.vsix`** — the webview bundle is missing.
+It is built by `npm run package`, not by `npm run vsix`. Rebuild and repackage, then
+confirm with `npx @vscode/vsce ls --no-dependencies` that `media/webview/app.js` is
+listed. Open **Developer: Open Webview Developer Tools** to see the load error.
+
+**The panel does not pick up webview changes during `F5` development** — the
+Extension Development Host caches the bundle. Run `npm run watch:webview`, then
+reload that window. Reloading the *host* window is not enough on its own.
+
+**"Multi-agent runs need an open folder"** — every agent works against the
+workspace, so a window with no folder cannot run one. Open a folder, or set
+`azureAiChat.orchestration` back to `single`.
+
+**A multi-agent run stops early saying it reached a budget** — expected, and the
+report says which ceiling. Raise `azureAiChat.budget`, or lower
+`azureAiChat.concurrency` if the cause was throttling rather than spend.
+
+**"X is set as the verifier model but is not one of the configured deployments"** —
+a name in `modelRoles` is not in `connection.model`. The run continues on the
+default deployment; fix the spelling to get the routing you asked for.
+
 ## Architecture
 
+Two processes, one repository. They share the event contract and nothing else.
+
 ```
-src/
-  extension.ts        activation, commands, connection test
-  panel.ts            sidebar webview host ⇄ webview messaging
-  chatSession.ts      conversation state and the tool-calling agent loop
-  azureClient.ts      Azure SSE streaming, multimodal content, reasoning effort
-  tools.ts            tool schemas and implementations
-  editReview.ts       virtual documents + accept/reject for proposed edits
-  commandApproval.ts  the same gate for commands
-  attachments.ts      file ingestion and content-part construction
-  prompt.ts           the built-in engineering prompt
-  history.ts          session report recording, redaction, resume
-  conversations.ts    transcript persistence in VS Code global storage
-  report.ts           the session report panel
-  lmProvider.ts       Azure as a model in the native Chat view
-  lmTools.ts          the tools, contributed to agent mode
-  shell/
-    policy.ts         command classification (auto / approve / denied)
-    exec.ts           Git Bash discovery and sandboxed execution
-  extract/
-    pdf.ts            PDF parser: object streams, page tree, ToUnicode CMaps
-    ooxml.ts          docx / pptx / xlsx text extraction
-    zip.ts            minimal ZIP reader
-media/
-  main.js, main.css   webview UI
+src/                        EXTENSION HOST — Node, bundled by esbuild → dist/
+  extension.ts              activation, commands, connection test
+  panel.ts                  webview host; validates every inbound message
+  chatSession.ts            the single-agent loop
+  azureClient.ts            Azure SSE streaming, multimodal, reasoning effort
+  tools.ts / toolArgs.ts    tool schemas, and narrowing for model-written args
+  patch/apply.ts            anchored search-and-replace editing
+  editReview.ts             virtual documents + accept/reject for edits
+  commandApproval.ts        the same gate for commands
+  events/                   the event contract, bus, replay buffer
+  agent/
+    coordinator.ts          task state, locks, budget — the single authority
+    taskGraph.ts            dependency graph and readiness
+    scheduler.ts            bounded, priority-aware concurrency
+    locks.ts                file ownership, so two agents cannot collide
+    scope.ts                what an agent may modify
+    planning/               five read-only planners, aggregation, conflicts
+    implement/              scoped coders
+    verify/                 the independent verifier and the repair loop
+    run.ts                  plan → implement → verify → repair, in order
+  git/baseline.ts           tells AI edits from your uncommitted work
+  shell/policy.ts           command classification (auto / approve / denied)
+  extract/                  PDF, OOXML and ZIP readers
+
+webview/                    UI — React + TypeScript, bundled by Vite → media/webview/
+  src/store/                one event pipeline, normalised domain slices
+  src/services/             the message bridge; the only place transport lives
+  src/features/             agents, chat, changes, commands, verification…
+  src/components/           ui primitives, shared states, layout
 ```
 
-The webview runs under a strict CSP with a per-load nonce, and every piece of model or file content is rendered with `textContent` rather than `innerHTML` — nothing from a model or a document can execute as HTML in the panel.
+The webview runs under a strict CSP with a per-load nonce. It holds no secrets and
+makes no network calls of its own — the host owns the key and every privileged
+operation. Messages are validated at both ends of the bridge, and model output is
+escaped before rendering, so nothing from a model or a document can execute as HTML.
 
 ## Extending it
 

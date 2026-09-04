@@ -1,18 +1,44 @@
-.vscode/**
-.vscode-test/**
+# Everything the extension does not need at runtime. What ships is the bundled
+# host (dist/), the built webview (media/webview/), the icon, the manifest,
+# the licence and the README.
+
+# --- source: bundled into dist/ and media/webview/ ------------------------
 src/**
 webview/**
 out/**
 node_modules/**
-.gitignore
-esbuild.js
-vite.config.mts
-tsconfig.json
-**/*.map
 **/*.ts
 **/*.tsx
+**/*.map
+
+# --- build and tooling ----------------------------------------------------
+esbuild.js
+vite.config.mts
+vitest.config.mts
+eslint.config.mjs
+.dependency-cruiser.cjs
+tsconfig.json
+tsconfig.node.json
+knip.json
+.size-limit.json
+.prettierrc.json
+.prettierignore
+.editorconfig
+
+# --- repository furniture -------------------------------------------------
+.github/**
+.husky/**
+.vscode/**
+.vscode-test/**
+.gitignore
+.gitattributes
+.env
+.env.*
+package-lock.json
+SKILL.md
+
+# --- superseded by the React webview, kept on disk only -------------------
 media/main.js
 media/main.css
 media/activity.js
 media/activity.css
-.env
