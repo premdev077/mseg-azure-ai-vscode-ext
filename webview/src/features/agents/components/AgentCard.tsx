@@ -1,20 +1,46 @@
 import * as Collapsible from '@radix-ui/react-collapsible';
-import { ChevronDown, ChevronRight, Clock } from 'lucide-react';
+import { ChevronDown, ChevronRight } from 'lucide-react';
 import { memo, useState } from 'react';
 import { formatDuration } from '../../../components/common/RelativeDuration';
 import { StatusIcon } from '../../../components/ui/StatusIcon';
-import type { AgentView } from '../../../types/view';
+import { cn } from '../../../utils/cn';
+import type { AgentStatus, AgentView } from '../../../types/view';
 
 /**
- * One agent, collapsed to a line and expandable to its detail.
+ * One agent.
  *
- * Memoised individually: with five agents running, a token arriving for one
- * must not re-render the other four. That is the difference between a panel
- * that stays at 60fps under load and one that stutters.
+ * A running agent carries an accent rail and a lifted surface, so which of
+ * five agents is live reads before any text is. Finished agents recede rather
+ * than disappear — the point of the panel is that you can see the whole shape
+ * of the run, not just its leading edge.
  *
- * `variant` is not needed here — a planner and a coder differ by data, not by
- * behaviour, so one component renders both.
+ * Memoised individually: with several agents working, a token for one must not
+ * re-render the rest.
  */
+const ROW_TONE: Record<AgentStatus, string> = {
+  running: 'bg-running-tint',
+  waiting: '',
+  completed: '',
+  failed: 'bg-danger-tint',
+  cancelled: ''
+};
+
+const RAIL_TONE: Record<AgentStatus, string> = {
+  running: 'bg-running',
+  waiting: 'bg-transparent',
+  completed: 'bg-success/50',
+  failed: 'bg-danger',
+  cancelled: 'bg-idle/40'
+};
+
+const ACTIVITY_TONE: Record<AgentStatus, string> = {
+  running: 'text-ink',
+  waiting: 'text-muted',
+  completed: 'text-muted',
+  failed: 'text-danger',
+  cancelled: 'text-muted'
+};
+
 export const AgentCard = memo(function AgentCard({ agent }: { agent: AgentView }) {
   const [open, setOpen] = useState(false);
   const expandable =
@@ -25,19 +51,26 @@ export const AgentCard = memo(function AgentCard({ agent }: { agent: AgentView }
       ? formatDuration((agent.finishedAt ?? Date.now()) - agent.startedAt)
       : undefined;
 
-  const activityTone =
-    agent.status === 'completed'
-      ? 'text-success'
-      : agent.status === 'failed'
-        ? 'text-danger'
-        : 'text-muted';
-
   return (
-    <li className="border-b border-line last:border-b-0">
+    <li
+      className={cn(
+        'relative border-b border-line/60 last:border-b-0',
+        ROW_TONE[agent.status]
+      )}
+    >
+      {/* The rail carries state without spending a whole row on it. */}
+      <span
+        aria-hidden
+        className={cn('absolute inset-y-0 left-0 w-0.5', RAIL_TONE[agent.status])}
+      />
+
       <Collapsible.Root open={open} onOpenChange={setOpen} disabled={!expandable}>
-        <div className="flex min-w-0 items-center gap-2 py-1 pr-2 pl-1">
+        <div className="flex min-w-0 items-center gap-2 py-2 pr-3 pl-2.5">
           <Collapsible.Trigger
-            className="flex max-w-[45%] shrink-0 items-center gap-2 rounded-sm p-1 disabled:cursor-default"
+            className={cn(
+              'group flex min-w-0 shrink-0 items-center gap-2 rounded-sm text-left',
+              expandable ? 'cursor-pointer' : 'cursor-default'
+            )}
             aria-label={
               expandable
                 ? `${open ? 'Collapse' : 'Expand'} ${agent.label}`
@@ -46,68 +79,96 @@ export const AgentCard = memo(function AgentCard({ agent }: { agent: AgentView }
           >
             {expandable ? (
               open ? (
-                <ChevronDown size={12} aria-hidden />
+                <ChevronDown size={12} className="shrink-0 text-muted" aria-hidden />
               ) : (
-                <ChevronRight size={12} aria-hidden />
+                <ChevronRight size={12} className="shrink-0 text-muted" aria-hidden />
               )
             ) : (
-              <span className="w-3" aria-hidden />
+              <span className="w-3 shrink-0" aria-hidden />
             )}
-            <StatusIcon status={agent.status} />
-            <span className="truncate text-xs">{agent.label}</span>
+            <StatusIcon status={agent.status} size={14} />
+            <span
+              className={cn(
+                'truncate text-sm',
+                agent.status === 'running' ? 'font-semibold text-ink' : 'font-medium',
+                agent.status === 'cancelled' && 'text-muted',
+                expandable && 'group-hover:text-link'
+              )}
+            >
+              {agent.label}
+            </span>
           </Collapsible.Trigger>
 
-          <span className={`min-w-0 flex-1 truncate text-xs ${activityTone}`}>
+          <span
+            className={cn(
+              'min-w-0 flex-1 truncate text-xs',
+              ACTIVITY_TONE[agent.status]
+            )}
+            title={agent.activity}
+          >
             {agent.activity}
           </span>
 
           {duration !== undefined && (
-            <span className="inline-flex shrink-0 items-center gap-0.5 text-2xs tabular-nums text-muted">
-              <Clock size={10} aria-hidden />
+            <span className="shrink-0 font-mono text-2xs tabular-nums text-muted">
               {duration}
             </span>
           )}
         </div>
 
         {agent.status === 'waiting' && agent.waitedOn.length > 0 && (
-          <p className="m-0 pb-1 pl-9 text-2xs text-muted">
-            Waiting on {agent.waitedOn.join(', ')}
+          <p className="m-0 pb-2 pl-10 text-2xs text-muted">
+            queued behind {agent.waitedOn.join(', ')}
           </p>
         )}
 
         <Collapsible.Content>
-          <dl className="m-0 grid grid-cols-[52px_1fr] gap-x-2 gap-y-1 pb-2 pl-9 pr-2 text-xs">
+          <div className="flex flex-col gap-2 border-t border-line/60 bg-canvas/40 px-3 py-2.5 pl-10">
             {agent.files.length > 0 && (
-              <>
-                <dt className="text-2xs uppercase tracking-wide text-muted">Files</dt>
-                <dd className="m-0 flex min-w-0 flex-wrap gap-1">
+              <div className="flex min-w-0 flex-col gap-1">
+                <span className="text-2xs font-medium tracking-wide text-muted uppercase">
+                  Files
+                </span>
+                <div className="flex flex-wrap gap-1">
                   {agent.files.map((file) => (
-                    <code key={file} className="break-all rounded-sm bg-hover px-1">
+                    <code
+                      key={file}
+                      className="rounded-sm bg-raise px-1.5 py-0.5 text-2xs break-all"
+                    >
                       {file}
                     </code>
                   ))}
-                </dd>
-              </>
+                </div>
+              </div>
             )}
+
             {agent.tools.length > 0 && (
-              <>
-                <dt className="text-2xs uppercase tracking-wide text-muted">Tools</dt>
-                <dd className="m-0 flex min-w-0 flex-wrap gap-1">
+              <div className="flex min-w-0 flex-col gap-1">
+                <span className="text-2xs font-medium tracking-wide text-muted uppercase">
+                  Tools
+                </span>
+                <div className="flex flex-wrap gap-1">
                   {agent.tools.map((tool) => (
-                    <code key={tool} className="rounded-sm bg-hover px-1">
+                    <code
+                      key={tool}
+                      className="rounded-sm bg-raise px-1.5 py-0.5 text-2xs"
+                    >
                       {tool}
                     </code>
                   ))}
-                </dd>
-              </>
+                </div>
+              </div>
             )}
+
             {agent.error !== undefined && (
-              <>
-                <dt className="text-2xs uppercase tracking-wide text-muted">Problem</dt>
-                <dd className="m-0 break-words text-danger">{agent.error}</dd>
-              </>
+              <div className="flex min-w-0 flex-col gap-1">
+                <span className="text-2xs font-medium tracking-wide text-danger uppercase">
+                  Problem
+                </span>
+                <p className="m-0 text-xs wrap-break-word text-danger">{agent.error}</p>
+              </div>
             )}
-          </dl>
+          </div>
         </Collapsible.Content>
       </Collapsible.Root>
     </li>

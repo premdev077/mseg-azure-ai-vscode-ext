@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useMemo } from 'react';
 import { ErrorBoundary } from '../components/common/ErrorBoundary';
-import { DisconnectedState, EmptyState } from '../components/common/States';
+import {
+  DisconnectedState,
+  EmptyState,
+  SuggestionButton
+} from '../components/common/States';
 import { Header } from '../components/layout/Header';
 import { Button } from '../components/ui/Button';
 import { TooltipProvider } from '../components/ui/Tooltip';
@@ -17,9 +21,22 @@ import { HistoryPanel } from '../features/history';
 import { ToolActivity } from '../features/tools';
 import { PlanPanel, VerificationPanel } from '../features/verification';
 import { useStickyScroll } from '../hooks/useStickyScroll';
-import { connectToHost } from '../services/messageBridge';
+import { connectToHost, PREFILL_EVENT } from '../services/messageBridge';
 import { host } from '../services/vscode';
 import { useAppStore } from '../store/appStore';
+
+const SUGGESTIONS = [
+  'Where is authentication handled in this project?',
+  'Run the type-check and fix whatever it reports.',
+  'Add validation to the interview form, with tests.'
+] as const;
+
+/** Fills the composer without sending, so the wording can be adjusted first. */
+function prefillComposer(text: string): void {
+  window.dispatchEvent(
+    new CustomEvent(PREFILL_EVENT, { detail: { text, autosend: false } })
+  );
+}
 
 /**
  * The shell.
@@ -74,66 +91,73 @@ function Transcript() {
   const empty = messages.length === 0 && agents === 0;
 
   return (
-    <div
-      ref={ref}
-      className="flex min-h-0 flex-1 flex-col gap-2 overflow-x-hidden overflow-y-auto p-2"
-    >
-      {empty && (
-        <EmptyState
-          title="AI Coding Assistant"
-          description="Describe a change, ask about the code, or attach files to read."
-        >
-          <ul className="m-0 list-disc pl-4 text-xs">
-            <li>“Where is authentication handled in this project?”</li>
-            <li>“Run the type-check and fix whatever it reports.”</li>
-            <li>“Add validation to the interview form, with tests.”</li>
-          </ul>
-        </EmptyState>
-      )}
+    // The scroll container must not be a flex column: flex children shrink
+    // by default, so the content compressed to fit instead of overflowing
+    // and nothing ever scrolled. Block outside, flex inside.
+    <div ref={ref} className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto">
+      <div className="flex flex-col gap-3 p-3">
+        {empty && (
+          <EmptyState
+            title="AI Coding Assistant"
+            description="Describe a change, ask about the code, or attach files to read."
+          >
+            <div className="flex w-full max-w-prose flex-col gap-1.5">
+              {SUGGESTIONS.map((suggestion) => (
+                <SuggestionButton
+                  key={suggestion}
+                  onClick={() => prefillComposer(suggestion)}
+                >
+                  {suggestion}
+                </SuggestionButton>
+              ))}
+            </div>
+          </EmptyState>
+        )}
 
-      {connection === 'degraded' && (
-        <DisconnectedState message="Some earlier activity is no longer held in memory, so this list may be incomplete. The work itself was not affected." />
-      )}
+        {connection === 'degraded' && (
+          <DisconnectedState message="Some earlier activity is no longer held in memory, so this list may be incomplete. The work itself was not affected." />
+        )}
 
-      {contextLabels.length > 0 && (
-        <div className="flex flex-wrap gap-1">
-          {contextLabels.map((label) => (
-            <span
-              key={label}
-              className="inline-flex items-center rounded-sm border border-line bg-surface px-1.5 py-px font-mono text-2xs text-muted"
-            >
-              @ {label}
-            </span>
-          ))}
-        </div>
-      )}
+        {contextLabels.length > 0 && (
+          <div className="flex flex-wrap gap-1">
+            {contextLabels.map((label) => (
+              <span
+                key={label}
+                className="inline-flex items-center rounded-sm border border-line bg-surface px-1.5 py-px font-mono text-2xs text-muted"
+              >
+                @ {label}
+              </span>
+            ))}
+          </div>
+        )}
 
-      {messages.map((message) => (
-        <ChatMessage key={message.id} message={message} callbacks={callbacks} />
-      ))}
+        {messages.map((message) => (
+          <ChatMessage key={message.id} message={message} callbacks={callbacks} />
+        ))}
 
-      <ErrorBoundary region="plan panel">
-        {plan && <PlanPanel plan={plan} />}
-      </ErrorBoundary>
-      <ErrorBoundary region="agent panel">
-        <AgentActivity />
-      </ErrorBoundary>
-      <ErrorBoundary region="activity list">
-        <ToolActivity />
-      </ErrorBoundary>
-      <ErrorBoundary region="command list">
-        <CommandList />
-      </ErrorBoundary>
-      <ErrorBoundary region="changed files">
-        <ChangedFiles />
-      </ErrorBoundary>
-      <ErrorBoundary region="verification panel">
-        {verification && <VerificationPanel verification={verification} />}
-      </ErrorBoundary>
+        <ErrorBoundary region="plan panel">
+          {plan && <PlanPanel plan={plan} />}
+        </ErrorBoundary>
+        <ErrorBoundary region="agent panel">
+          <AgentActivity />
+        </ErrorBoundary>
+        <ErrorBoundary region="activity list">
+          <ToolActivity />
+        </ErrorBoundary>
+        <ErrorBoundary region="command list">
+          <CommandList />
+        </ErrorBoundary>
+        <ErrorBoundary region="changed files">
+          <ChangedFiles />
+        </ErrorBoundary>
+        <ErrorBoundary region="verification panel">
+          {verification && <VerificationPanel verification={verification} />}
+        </ErrorBoundary>
 
-      {usageNote !== undefined && (
-        <p className="m-0 text-2xs text-muted">{usageNote}</p>
-      )}
+        {usageNote !== undefined && (
+          <p className="m-0 px-1 text-xs text-muted">{usageNote}</p>
+        )}
+      </div>
     </div>
   );
 }

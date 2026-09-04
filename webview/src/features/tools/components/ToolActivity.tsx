@@ -9,7 +9,7 @@ import type { ToolView } from '../../../types/view';
 
 const ToolRow = memo(function ToolRow({ tool }: { tool: ToolView }) {
   return (
-    <li className="flex min-w-0 items-baseline gap-2 px-2 py-0.5 text-xs">
+    <li className="flex min-w-0 items-baseline gap-2 px-3 py-1 text-xs">
       <StatusIcon
         size={11}
         status={
@@ -58,23 +58,25 @@ export function ToolActivity() {
     <Collapsible.Root
       open={open}
       onOpenChange={setOpen}
-      className="overflow-hidden rounded-sm border border-line bg-surface"
+      className="overflow-hidden rounded-md border border-line bg-surface"
     >
-      <Collapsible.Trigger className="flex w-full items-center gap-2 px-2 py-1.5 text-2xs uppercase tracking-wider text-muted">
+      <Collapsible.Trigger className="flex w-full items-center gap-2 bg-raise px-3 py-2 text-xs font-semibold text-ink transition-colors hover:bg-hover">
         {open ? (
-          <ChevronDown size={12} aria-hidden />
+          <ChevronDown size={12} className="text-muted" aria-hidden />
         ) : (
-          <ChevronRight size={12} aria-hidden />
+          <ChevronRight size={12} className="text-muted" aria-hidden />
         )}
-        <ListChecks size={12} aria-hidden />
-        <span>Activity</span>
+        <ListChecks size={13} className="opacity-80" aria-hidden />
+        <span className="tracking-tight">Activity</span>
         <span className="flex-1" />
-        <span className="tabular-nums normal-case">{tools.length}</span>
+        <span className="text-2xs font-normal tabular-nums opacity-75">
+          {tools.length} step{tools.length === 1 ? '' : 's'}
+        </span>
       </Collapsible.Trigger>
       <Collapsible.Content>
-        <div className="border-t border-line pt-1 pb-1">
+        <div className="border-t border-line py-1.5">
           {hidden > 0 && (
-            <p className="m-0 px-2 py-0.5 text-2xs text-muted">
+            <p className="m-0 px-3 py-1 text-2xs text-muted">
               {hidden} earlier step(s) not shown
             </p>
           )}

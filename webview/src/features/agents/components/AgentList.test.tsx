@@ -89,7 +89,7 @@ describe('AgentList', () => {
         waitedOn: ['implement-1']
       })
     ]);
-    expect(screen.getByText(/Waiting on implement-1/)).toBeInTheDocument();
+    expect(screen.getByText(/queued behind implement-1/)).toBeInTheDocument();
   });
 
   it('expands detail from the keyboard', async () => {

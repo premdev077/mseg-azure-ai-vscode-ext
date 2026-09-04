@@ -3,8 +3,8 @@ import type { ReactNode } from 'react';
 import { cn } from '../../utils/cn';
 
 const badge = cva(
-  'inline-flex h-4 items-center whitespace-nowrap rounded-sm border px-1.5 ' +
-    'text-2xs font-semibold tracking-wide',
+  'inline-flex h-4.5 items-center whitespace-nowrap rounded-full border px-2 ' +
+    'text-2xs font-semibold tracking-tight',
   {
     variants: {
       tone: {

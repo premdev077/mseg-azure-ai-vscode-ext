@@ -3,8 +3,12 @@
   "displayName": "Azure AI VScode Chat Extenstion",
   "description": "Agentic AI coding assistant for VS Code, powered by your own Azure OpenAI deployment. Sidebar chat with attachments and Git Bash, plus Azure models in the native Chat view.",
   "version": "1.0.0",
-  "publisher": "Premraj Tharmarajah",
+  "publisher": "Premraj",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/premdev077/mseg-azure-ai-vscode-ext.git"
+  },
   "engines": {
     "vscode": "^1.104.0"
   },
@@ -32,6 +36,7 @@
     "test": "node -e \"require('node:fs').rmSync('out',{recursive:true,force:true})\" && tsc && node --test \"out/test/*.test.js\"",
     "vsix": "npx --yes @vscode/vsce package --no-dependencies",
     "watch:webview": "vite build --watch",
+    "preview": "vite --port 5599",
     "lint": "eslint . --max-warnings=0",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
@@ -70,6 +75,7 @@
     "knip": "^6.34.0",
     "lint-staged": "^17.4.1",
     "lucide-react": "^1.39.0",
+    "playwright": "^1.62.1",
     "prettier": "^3.9.6",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",

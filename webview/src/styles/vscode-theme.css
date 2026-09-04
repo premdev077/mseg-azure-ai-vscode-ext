@@ -65,6 +65,23 @@
     var(--vscode-descriptionForeground, #888888)
   );
 
+  /*
+   * Tints, mixed from the theme's own colours rather than hard-coded.
+   *
+   * A translucent wash of the accent behind a running row reads as "this is
+   * live" far faster than a status glyph alone, and because it is derived from
+   * the theme it stays correct in light, dark and high contrast.
+   */
+  --app-accent-tint: color-mix(in srgb, var(--app-accent) 14%, transparent);
+  --app-accent-tint-strong: color-mix(in srgb, var(--app-accent) 22%, transparent);
+  --app-success-tint: color-mix(in srgb, var(--app-success) 14%, transparent);
+  --app-danger-tint: color-mix(in srgb, var(--app-danger) 13%, transparent);
+  --app-warning-tint: color-mix(in srgb, var(--app-warning) 15%, transparent);
+  --app-running-tint: color-mix(in srgb, var(--app-running) 13%, transparent);
+
+  /* A surface that lifts off the panel without a shadow. */
+  --app-raise: color-mix(in srgb, var(--app-fg) 4%, transparent);
+
   --app-added: var(--vscode-gitDecoration-addedResourceForeground, #81b88b);
   --app-removed: var(--vscode-gitDecoration-deletedResourceForeground, #c74e39);
   --app-modified: var(--vscode-gitDecoration-modifiedResourceForeground, #e2c08d);

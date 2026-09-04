@@ -1,4 +1,4 @@
-import { History, Plus, Settings } from 'lucide-react';
+import { History, Plus, Settings, Sparkles } from 'lucide-react';
 import { Badge } from '../ui/Badge';
 import { IconButton } from '../ui/IconButton';
 import { StatusIcon } from '../ui/StatusIcon';
@@ -40,23 +40,30 @@ export function Header({
   onSettings
 }: HeaderProps) {
   return (
-    <header className="flex min-h-8 shrink-0 items-center gap-1.5 border-b border-line bg-canvas px-2 py-1.5">
-      <span className="hidden text-xs font-semibold tracking-wide text-muted uppercase sm:inline">
-        AI Coding Assistant
+    <header className="flex min-h-9 shrink-0 items-center gap-2 border-b border-line bg-canvas px-2.5 py-1.5">
+      <span
+        className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-accent text-accent-ink"
+        aria-hidden
+      >
+        <Sparkles size={11} />
       </span>
 
       <span
-        className="inline-flex min-w-0 items-center gap-1 truncate text-xs"
+        className="inline-flex min-w-0 items-center gap-1.5 truncate text-xs font-medium"
         role="status"
         aria-live="polite"
       >
-        {busy && <StatusIcon status="running" size={11} />}
-        {phaseLabel}
+        {busy && <StatusIcon status="running" size={12} />}
+        <span className="truncate">{phaseLabel}</span>
       </span>
 
       <span className="flex-1" />
 
-      {multiAgent && <Badge tone="accent">multi-agent</Badge>}
+      {multiAgent && (
+        <Badge tone="accent" className="hidden sm:inline-flex">
+          multi-agent
+        </Badge>
+      )}
 
       <span
         className="inline-flex items-center gap-1 text-2xs whitespace-nowrap text-muted"

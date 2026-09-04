@@ -4,7 +4,8 @@
     "src/extension.ts",
     "src/test/*.test.ts",
     "webview/src/main.tsx",
-    "webview/src/**/*.test.{ts,tsx}"
+    "webview/src/**/*.test.{ts,tsx}",
+    "webview/src/preview/main.tsx"
   ],
   "project": ["src/**/*.ts", "webview/src/**/*.{ts,tsx}"],
   "ignoreDependencies": [
@@ -13,7 +14,8 @@
     "dependency-cruiser",
     "husky",
     "lint-staged",
-    "tailwindcss"
+    "tailwindcss",
+    "playwright"
   ],
   "ignoreBinaries": ["where"],
   "ignore": ["src/prompt/systemPrompt.ts"],

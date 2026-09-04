@@ -30,6 +30,14 @@
   --color-field-ink: var(--app-input-fg);
   --color-placeholder: var(--app-placeholder);
 
+  --color-accent-tint: var(--app-accent-tint);
+  --color-accent-tint-strong: var(--app-accent-tint-strong);
+  --color-success-tint: var(--app-success-tint);
+  --color-danger-tint: var(--app-danger-tint);
+  --color-warning-tint: var(--app-warning-tint);
+  --color-running-tint: var(--app-running-tint);
+  --color-raise: var(--app-raise);
+
   --color-success: var(--app-success);
   --color-warning: var(--app-warning);
   --color-danger: var(--app-danger);
@@ -44,14 +52,16 @@
   --font-mono: var(--app-font-mono);
 
   /* Compact scale: this sits in a sidebar beside an editor, not on a page. */
-  --text-2xs: 10px;
-  --text-xs: 11px;
-  --text-sm: 12px;
+  --text-2xs: 11px;
+  --text-xs: 12px;
+  --text-sm: 12.5px;
   --text-base: var(--app-font-size);
   --text-lg: 15px;
+  --text-xl: 17px;
 
-  --radius-sm: 2px;
-  --radius-md: 4px;
+  --radius-sm: 3px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
 
   --spacing: 4px;
 }

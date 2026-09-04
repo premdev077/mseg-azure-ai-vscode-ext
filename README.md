@@ -12,7 +12,7 @@ It works in two places:
 ## 1. Install
 
 ```
-code --install-extension azure-ai-chat-0.4.0.vsix
+code --install-extension azure-ai-chat-1.0.0.vsix
 ```
 
 Or `Ctrl+Shift+P` → **Extensions: Install from VSIX…**

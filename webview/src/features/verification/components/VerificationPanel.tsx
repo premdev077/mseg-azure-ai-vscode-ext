@@ -1,73 +1,74 @@
 import { ShieldCheck } from 'lucide-react';
 import { memo } from 'react';
-import { Badge } from '../../../components/ui/Badge';
 import { Panel, PanelHeading } from '../../../components/ui/Panel';
 import { CheckIcon, StatusIcon } from '../../../components/ui/StatusIcon';
-import type { VerificationView } from '../../../types/view';
+import { cn } from '../../../utils/cn';
+import type { CheckState, VerificationView } from '../../../types/view';
 
 /**
- * The quality gate, rendered.
+ * The quality gate.
  *
- * Each check is shown separately and a skipped check renders as a dash rather
- * than a tick — "the project has no tests" must never look like "the tests
+ * This is the payoff of a run, so it is allowed to be the loudest thing on
+ * screen — a passing verdict is green, a failing one red, and neither is
+ * mistakable for the other at a glance. A skipped check renders as a dash,
+ * never a tick: "this project has no tests" must never look like "the tests
  * passed".
  */
+const CHECKS: ReadonlyArray<{ key: keyof VerificationView; label: string }> = [
+  { key: 'typecheck', label: 'Type check' },
+  { key: 'lint', label: 'Lint' },
+  { key: 'tests', label: 'Tests' },
+  { key: 'build', label: 'Build' }
+];
+
 export const VerificationPanel = memo(function VerificationPanel({
   verification
 }: {
   verification: VerificationView;
 }) {
   const { status } = verification;
-  const border =
-    status === 'passed'
-      ? 'border-success'
-      : status === 'failed'
-        ? 'border-danger'
-        : 'border-line';
+  const tone =
+    status === 'passed' ? 'success' : status === 'failed' ? 'danger' : 'active';
 
   return (
-    <Panel label="Verification" className={border}>
+    <Panel label="Verification" tone={tone}>
       <PanelHeading
+        tone={tone}
         icon={<ShieldCheck size={13} aria-hidden />}
         meta={status === 'running' ? `attempt ${verification.attempt}` : undefined}
       >
-        Verification
+        {status === 'passed'
+          ? 'Verified'
+          : status === 'failed'
+            ? 'Not verified'
+            : 'Verifying'}
       </PanelHeading>
 
-      <ul className="m-0 grid list-none gap-1 p-2 text-xs">
-        <li className="flex items-center gap-2">
-          <CheckIcon state={verification.typecheck} /> Type check
-        </li>
-        <li className="flex items-center gap-2">
-          <CheckIcon state={verification.lint} /> Lint
-        </li>
-        <li className="flex items-center gap-2">
-          <CheckIcon state={verification.tests} /> Tests
-        </li>
-        <li className="flex items-center gap-2">
-          <CheckIcon state={verification.build} /> Build
-        </li>
+      <ul className="m-0 grid list-none grid-cols-2 gap-x-3 gap-y-1.5 p-3 text-xs">
+        {CHECKS.map(({ key, label }) => {
+          const state = verification[key] as CheckState;
+          return (
+            <li key={key} className="flex items-center gap-2">
+              <CheckIcon state={state} />
+              <span className={cn(state === 'skipped' && 'text-muted')}>{label}</span>
+            </li>
+          );
+        })}
       </ul>
 
-      <div className="flex items-center gap-2 border-t border-line px-2 py-1.5 text-xs">
-        {status === 'running' && (
-          <>
-            <StatusIcon status="running" />
-            <span>Checking the work independently…</span>
-          </>
-        )}
-        {status === 'passed' && <Badge tone="success">VERIFIED</Badge>}
-        {status === 'failed' && (
-          <>
-            <Badge tone="danger">NOT VERIFIED</Badge>
-            {verification.issues > 0 && (
-              <span className="text-2xs text-muted">
-                {verification.issues} issue(s), {verification.fixes} fix(es) requested
-              </span>
-            )}
-          </>
-        )}
-      </div>
+      {status === 'running' && (
+        <div className="flex items-center gap-2 border-t border-line px-3 py-2 text-xs text-muted">
+          <StatusIcon status="running" size={12} />
+          Checking the work independently…
+        </div>
+      )}
+
+      {status === 'failed' && verification.issues > 0 && (
+        <p className="m-0 border-t border-line px-3 py-2 text-xs text-danger">
+          {verification.issues} issue{verification.issues === 1 ? '' : 's'} found ·{' '}
+          {verification.fixes} fix{verification.fixes === 1 ? '' : 'es'} requested
+        </p>
+      )}
     </Panel>
   );
 });

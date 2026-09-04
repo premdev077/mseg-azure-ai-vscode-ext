@@ -10,12 +10,12 @@ import { host } from '../../../services/vscode';
 import { useAppStore } from '../../../store/appStore';
 
 const EFFORTS: readonly SelectOption[] = [
-  { value: '', label: 'Thinking: default' },
-  { value: 'none', label: 'Thinking: none' },
-  { value: 'minimal', label: 'Thinking: minimal' },
-  { value: 'low', label: 'Thinking: low' },
-  { value: 'medium', label: 'Thinking: medium' },
-  { value: 'high', label: 'Thinking: high' }
+  { value: '', label: 'Auto' },
+  { value: 'none', label: 'None' },
+  { value: 'minimal', label: 'Minimal' },
+  { value: 'low', label: 'Low' },
+  { value: 'medium', label: 'Medium' },
+  { value: 'high', label: 'High' }
 ];
 
 /** Context tokens the host understands, shown so they are discoverable. */
@@ -104,7 +104,7 @@ export function Composer() {
 
   return (
     <form
-      className="flex shrink-0 flex-col gap-1.5 border-t border-line bg-canvas px-2 pt-1.5 pb-2"
+      className="flex shrink-0 flex-col gap-2 border-t border-line bg-canvas px-2.5 pt-2 pb-2.5"
       onSubmit={(event) => {
         event.preventDefault();
         submit();
@@ -151,7 +151,7 @@ export function Composer() {
             submit();
           }
         }}
-        className="min-h-13 w-full resize-y rounded-sm border border-line bg-field p-1.5 font-sans text-base leading-normal text-field-ink placeholder:text-placeholder"
+        className="min-h-16 w-full resize-y rounded-md border border-line bg-field px-2.5 py-2 font-sans text-sm leading-relaxed text-field-ink transition-colors placeholder:text-placeholder focus:border-accent/60"
       />
 
       <div className="flex flex-wrap items-center gap-1">
@@ -194,13 +194,17 @@ export function Composer() {
           }}
         />
 
-        <label className="inline-flex cursor-pointer items-center gap-1 text-xs whitespace-nowrap text-muted">
+        <label
+          className="inline-flex cursor-pointer items-center gap-1 text-xs whitespace-nowrap text-muted hover:text-ink"
+          title="Attach the active editor file and selection to the next message"
+        >
           <input
             type="checkbox"
             checked={attachContext}
             onChange={(event) => setAttachContext(event.target.checked)}
           />
-          <span>Active file</span>
+          <span className="hidden sm:inline">Active file</span>
+          <span className="sm:hidden">File</span>
         </label>
 
         <span className="flex-1" />
@@ -216,10 +220,13 @@ export function Composer() {
         )}
       </div>
 
-      <div className="flex gap-2 text-2xs text-muted">
-        <span>Enter to send · Shift+Enter for a new line</span>
+      <div className="flex gap-2 px-0.5 text-2xs text-muted">
+        <span>
+          <kbd className="font-sans font-medium">Enter</kbd> to send ·{' '}
+          <kbd className="font-sans font-medium">Shift+Enter</kbd> for a new line
+        </span>
         <span className="flex-1" />
-        <span className="hidden font-mono sm:inline">{CONTEXT_HINTS}</span>
+        <span className="hidden font-mono opacity-70 sm:inline">{CONTEXT_HINTS}</span>
       </div>
     </form>
   );
